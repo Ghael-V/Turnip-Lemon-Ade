@@ -60,17 +60,18 @@ const char *ir3_shader_override_path = NULL;
 struct ir3_gpu_profile
 ir3_get_gpu_profile(uint32_t chip_id)
 {
-    switch (chip_id) {
+    uint32_t cid = chip_id & 0xffffffff;
+    switch (cid) {
     case 0x44010000: /* Adreno 810 */
         return (struct ir3_gpu_profile){90, 4, 4, false};
     case 0x44030000: /* Adreno 825 */
         return (struct ir3_gpu_profile){85, 8, 8, true};
     case 0x44030A20: /* Adreno 829 */
         return (struct ir3_gpu_profile){80, 10, 8, true};
-    case 0x44050001: /* Adreno 830 */
-        return (struct ir3_gpu_profile){75, 16, 12, true};
-    case 0x43050A31: /* Adreno 830 variant */
-        return (struct ir3_gpu_profile){75, 16, 12, true};
+    case 0x44050000: /* Adreno 830 (DRM/KGSL rev 0) */
+    case 0x44050001: /* Adreno 830 (KGSL rev 1) */
+    case 0x43050a31: /* Adreno 830 variant */
+        return (struct ir3_gpu_profile){85, 16, 12, true};
     case 0x43050A32: /* Adreno 840 */
         return (struct ir3_gpu_profile){70, 20, 16, true};
     default:
