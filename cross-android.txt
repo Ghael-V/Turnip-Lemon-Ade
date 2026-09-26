@@ -1,0 +1,18 @@
+[binaries]
+c = '/opt/android-ndk/android-ndk-r26b/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android29-clang'
+cpp = '/opt/android-ndk/android-ndk-r26b/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android29-clang++'
+ar = '/opt/android-ndk/android-ndk-r26b/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar'
+strip = '/opt/android-ndk/android-ndk-r26b/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip'
+pkgconfig = 'false'
+
+[built-in options]
+c_args = ['-O3', '-fomit-frame-pointer', '-fdata-sections', '-ffunction-sections', '-march=armv8.2-a+dotprod+fp16', '-fno-plt', '-ffp-contract=fast']
+cpp_args = ['-O3', '-fomit-frame-pointer', '-fdata-sections', '-ffunction-sections', '-march=armv8.2-a+dotprod+fp16', '-fno-plt', '-ffp-contract=fast']
+c_link_args = ['-Wl,--gc-sections', '-Wl,-Bsymbolic-functions']
+cpp_link_args = ['-static-libstdc++', '-Wl,--gc-sections', '-Wl,-Bsymbolic-functions']
+
+[host_machine]
+system = 'android'
+cpu_family = 'aarch64'
+cpu = 'armv8'
+endian = 'little'
