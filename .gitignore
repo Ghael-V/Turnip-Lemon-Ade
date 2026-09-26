@@ -7,3 +7,7 @@
 /build
 .venv/
 *.mda.tar
+
+# Lemon-Ade build outputs
+/src/freedreno/vulkan/lemon_version.h
+/Lemon-Ade-Turnip-Driver.zip
