@@ -8,6 +8,11 @@
  */
 
 #include "tu_device.h"
+#if __has_include("lemon_version.h")
+#include "lemon_version.h"
+#else
+#define LEMON_ADE_VERSION "Lemon-Ade-dev"
+#endif
 
 #include "drm-uapi/drm_fourcc.h"
 #include "git_sha1.h"
@@ -880,17 +885,17 @@ tu_get_features(struct tu_physical_device *pdevice,
    features->robustImageAccess2 = true;
    features->nullDescriptor = true;
 
-   /* VK_EXT_shader_atomic_float */
+   /* VK_EXT_shader_atomic_float - Enabled for UE5 Global Illumination / Radiance caching */
    features->shaderBufferFloat32Atomics = true;
-   features->shaderBufferFloat32AtomicAdd = false;
+   features->shaderBufferFloat32AtomicAdd = true;
    features->shaderBufferFloat64Atomics = false;
    features->shaderBufferFloat64AtomicAdd = false;
    features->shaderSharedFloat32Atomics = true;
-   features->shaderSharedFloat32AtomicAdd = false;
+   features->shaderSharedFloat32AtomicAdd = true;
    features->shaderSharedFloat64Atomics = false;
    features->shaderSharedFloat64AtomicAdd = false;
    features->shaderImageFloat32Atomics = true;
-   features->shaderImageFloat32AtomicAdd = false;
+   features->shaderImageFloat32AtomicAdd = true;
    features->sparseImageFloat32Atomics = false;
    features->sparseImageFloat32AtomicAdd = false;
 
@@ -1030,10 +1035,10 @@ tu_get_physical_device_properties_1_2(struct tu_physical_device *pdevice,
    p->driverID = VK_DRIVER_ID_MESA_TURNIP;
    memset(p->driverName, 0, sizeof(p->driverName));
    snprintf(p->driverName, VK_MAX_DRIVER_NAME_SIZE,
-            "turnip Mesa driver (whitebelyash branch)");
+            "Lemon-Ade Turnip Driver");
    memset(p->driverInfo, 0, sizeof(p->driverInfo));
    snprintf(p->driverInfo, VK_MAX_DRIVER_INFO_SIZE,
-            "Mesa " PACKAGE_VERSION MESA_GIT_SHA1);
+            "%s", LEMON_ADE_VERSION);
    p->conformanceVersion = (VkConformanceVersion) {
       .major = 1,
       .minor = 4,
@@ -1053,7 +1058,7 @@ tu_get_physical_device_properties_1_2(struct tu_physical_device *pdevice,
       VK_SHADER_FLOAT_CONTROLS_INDEPENDENCE_ALL;
 
    if (pdevice->info->chip >= A8XX) {
-      p->shaderDenormFlushToZeroFloat16      = false;
+      p->shaderDenormFlushToZeroFloat16      = true;
       p->shaderDenormPreserveFloat16         = true;
    } else {
       p->shaderDenormFlushToZeroFloat16      = true;

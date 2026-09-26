@@ -1221,8 +1221,14 @@ ir3_mem_access_size_align(nir_intrinsic_op intrin, uint8_t bytes,
 static bool
 atomic_supported(const nir_instr * instr, const void * data)
 {
-   /* No atomic 64b arithmetic is supported in A7XX so far */
-   return nir_instr_as_intrinsic(instr)->def.bit_size != 64;
+   const nir_intrinsic_instr *intr = nir_instr_as_intrinsic(instr);
+   if (intr->def.bit_size == 64)
+      return false;
+   nir_atomic_op op = nir_intrinsic_atomic_op(intr);
+   /* Lower float atomics (fadd, fmin, fmax) to CAS loops for UE5 GI / radiance accumulation */
+   if (op == nir_atomic_op_fadd || op == nir_atomic_op_fmin || op == nir_atomic_op_fmax)
+      return false;
+   return true;
 }
 
 /**
