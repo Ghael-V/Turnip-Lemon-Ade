@@ -1713,6 +1713,7 @@ kgsl_queue_submit(struct tu_queue *queue, void *_submit,
    }
 
 fail_submit:
+   kgsl_syncobj_destroy(&wait_sync);
    if (result != VK_SUCCESS && u_trace_submission_data) {
       mtx_lock(&queue->device->kgsl_profiling_mutex);
       tu_suballoc_bo_free(&queue->device->kgsl_profiling_suballoc,
