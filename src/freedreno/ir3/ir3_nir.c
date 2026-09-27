@@ -328,7 +328,7 @@ ir3_optimize_loop(struct ir3_compiler *compiler,
 
       static int gcm = -1;
       if (gcm == -1)
-         gcm = debug_get_num_option("GCM", 0);
+         gcm = debug_get_num_option("GCM", 1);
       if (gcm == 1)
          progress |= OPT(s, nir_opt_gcm, true);
       else if (gcm == 2)
