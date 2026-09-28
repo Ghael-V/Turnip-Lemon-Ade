@@ -307,6 +307,18 @@ ir3_optimize_loop(struct ir3_compiler *compiler,
                          (s->options->lower_flrp32 ? 32 : 0) |
                          (s->options->lower_flrp64 ? 64 : 0);
 
+   /* Lemon-Ade: the optimization passes only get a limited number of rounds instead of running
+    * to convergence (default 1; IR3_OPT_MAX_ITERS=0 restores upstream behaviour). Measured in
+    * Lemon on an Adreno 830 (TOTK, cold shader cache): -24% per-stage compile time, -24% time
+    * spent waiting on shaders, worst frame-time spike 0.4 -> 8.9 fps, and no extra GPU time in a
+    * fixed scene (36.5% busy vs 38.2%). The lowering passes of the loop still run to a fixed point
+    * afterwards, so nothing a late optimization produced is left unlowered for the backend.
+    */
+   static int max_iterations = -1;
+   if (max_iterations == -1)
+      max_iterations = debug_get_num_option("IR3_OPT_MAX_ITERS", 1);
+   int iterations = 0;
+
    do {
       progress = false;
 
@@ -404,6 +416,19 @@ ir3_optimize_loop(struct ir3_compiler *compiler,
       progress |= OPT(s, nir_opt_remove_phis);
       progress |= OPT(s, nir_opt_undef);
       did_progress |= progress;
+
+      if (progress && max_iterations > 0 && ++iterations >= max_iterations) {
+         bool lowered;
+         do {
+            lowered = false;
+            lowered |= OPT(s, nir_lower_alu_to_scalar, NULL, NULL);
+            lowered |= OPT(s, nir_lower_phis_to_scalar, NULL, NULL);
+            lowered |= OPT(s, nir_lower_alu);
+            lowered |= OPT(s, nir_lower_pack);
+            lowered |= OPT(s, nir_lower_bit_size, ir3_lower_bit_size, NULL);
+         } while (lowered);
+         break;
+      }
    } while (progress);
 
    OPT(s, nir_lower_var_copies);
