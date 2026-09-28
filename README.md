@@ -18,6 +18,13 @@ device's stock Qualcomm driver.
   in ir3, for Unreal Engine 5 global illumination / radiance accumulation.
 - A8xx advertises fp16 denormal flush-to-zero; the driver reports itself as "Lemon-Ade Turnip Driver" with its
   build version.
+- **Faster shader compiles:** ir3's NIR optimization loop gets a single round instead of running to
+  convergence (the loop's lowering passes still run to a fixed point afterwards). In Lemon on an Adreno 830
+  (Tears of the Kingdom, cold shader cache): per-stage compile time 9.05 -> 6.96 ms, time spent waiting on
+  shaders -24%, no extra GPU time in a fixed scene. `IR3_OPT_MAX_ITERS=0` restores upstream behaviour.
+- **Global code motion** (`nir_opt_gcm`) runs in that loop by default (about +3% average FPS in the same
+  test); `GCM=0` turns it off.
+- Pipeline and KGSL profiling suballocators use 512 KiB blocks instead of 128 KiB.
 
 These apply to every Adreno generation the build supports, but Lemon-Ade is only tested on the Adreno 830
 (Snapdragon 8 Elite).
