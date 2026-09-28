@@ -1,5 +1,5 @@
 #!/bin/sh
-# Builds the Lemon-Ade driver zip. Usage: lemon-ade/build.sh [version]
+# Builds the Lemon-Ade driver zip (<version>.zip). Usage: lemon-ade/build.sh [version]
 # The version defaults to the current commit; it ends up in lemon_version.h (reported as the
 # Vulkan driverInfo) and in the zip's meta.json.
 set -e
@@ -45,6 +45,9 @@ cat > "$ZIP_DIR/meta.json" <<EOF
   "libraryName": "libvulkan_freedreno.so"
 }
 EOF
-rm -f "$ROOT/Lemon-Ade-Turnip-Driver.zip"
-(cd "$ZIP_DIR" && zip -r "$ROOT/Lemon-Ade-Turnip-Driver.zip" .)
-echo "Built $VERSION -> $ROOT/Lemon-Ade-Turnip-Driver.zip"
+# Versioned name: driver managers (including Lemon's downloader) treat a zip with the same file
+# name as already installed, so every release needs its own.
+ZIP="$ROOT/$VERSION.zip"
+rm -f "$ZIP"
+(cd "$ZIP_DIR" && zip -r "$ZIP" .)
+echo "Built $VERSION -> $ZIP"

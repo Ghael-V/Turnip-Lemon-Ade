@@ -38,8 +38,8 @@ Mesa's usual build dependencies (meson, ninja, python3 with mako/pyyaml, glslang
 lemon-ade/build.sh
 ```
 
-This configures `build-android/`, builds `libvulkan_freedreno.so` and writes `Lemon-Ade-Turnip-Driver.zip` (the
-library plus the adrenotools `meta.json`) at the repository root.
+This configures `build-android/`, builds `libvulkan_freedreno.so` and writes `<version>.zip` (the library plus
+the adrenotools `meta.json`) at the repository root, e.g. `lemon-ade/build.sh Lemon-Ade-v0.0.6`.
 
 Note: `cross-android.txt` targets `armv8.2-a+dotprod+fp16`, so the library needs a CPU with the dot-product
 extension (Snapdragon 845 and later).
