@@ -22,8 +22,10 @@ device's stock Qualcomm driver.
   convergence (the loop's lowering passes still run to a fixed point afterwards). In Lemon on an Adreno 830
   (Tears of the Kingdom, cold shader cache): per-stage compile time 9.05 -> 6.96 ms, time spent waiting on
   shaders -24%, no extra GPU time in a fixed scene. `IR3_OPT_MAX_ITERS=0` restores upstream behaviour.
-- **Global code motion** (`nir_opt_gcm`) runs in that loop by default (about +3% average FPS in the same
-  test); `GCM=0` turns it off.
+- **Global code motion** (`nir_opt_gcm`) is off again by default, as upstream, since v0.0.7: with global
+  value numbering (`GCM=1`, the default in v0.0.5 and v0.0.6) it miscompiled Lemon's BCn decoder shader on
+  an Adreno 830 (every texel wrong; Qualcomm's driver and other Turnip builds were right, and `GCM=0` fixes
+  it). `GCM=2` (code motion without value numbering) decoded it right but is untested otherwise.
 - Pipeline and KGSL profiling suballocators use 512 KiB blocks instead of 128 KiB.
 
 These apply to every Adreno generation the build supports, but Lemon-Ade is only tested on the Adreno 830
