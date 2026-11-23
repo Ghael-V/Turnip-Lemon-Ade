@@ -1,0 +1,696 @@
+# Copyright © 2026 Daniel Lang
+# SPDX-License-Identifier: MIT
+
+# Possible values
+# pipe: enum name that the format info belongs to, prefixed with PIPE_FORMAT_.
+# vtx: Vertex format that gets mapped, prefixed with FE_DATA_TYPE_.
+# vtx_gate: GPU feature required to support the format for vertex fetches, prefixed with ETNA_FEATURE_.
+# tex: Texture format that gets mapped, prefixed with TEXTURE_FORMAT_.
+# tex_gate: GPU feature required to support the format as texture, prefixed with ETNA_FEATURE_.
+# pe: PE format that get's mapped, prefixed with PE_FORMAT_.
+# pe_gate: GPU feature required to support the format as render target, prefixed with ETNA_FEATURE_.
+# zs: PE depth format that gets mapped, prefixed with VIVS_PE_DEPTH_CONFIG_DEPTH_FORMAT_.
+# zs_gate: GPU feature required to support the format as depth/stencil buffer, prefixed with ETNA_FEATURE_.
+# rb_swap: true if the format needs red and blue channel swapped.
+# emulated: If a given format is emulated, specifies the pipe format used as replacement, prefixed with PIPE_FORMAT_.
+# emulation: Name of the emulation.
+#
+# Values other than pipe are optional and will be filled with default
+# values if left out.
+
+# 8-bit
+- pipe: R8_UNORM
+  vtx: UNSIGNED_BYTE
+  tex: L8
+  tex_gate: HALTI0                      # needs sampler swizzle
+  pe: R8
+  pe_gate: HALTI5                       # R8 needs HALTI5
+
+- pipe: R8_SNORM
+  vtx: BYTE
+  tex: EXT_R8_SNORM
+  tex_gate: HALTI1                      # snorm needs HALTI1
+
+- pipe: R8_UINT
+  vtx: BYTE_I
+  vtx_gate: HALTI2                      # pure int needs HALTI2
+  tex: EXT_R8I
+  tex_gate: HALTI2                      # pure int needs HALTI2
+  pe: R8I
+  pe_gate: HALTI5                       # R8 needs HALTI5
+
+- pipe: R8_SINT
+  vtx: BYTE_I
+  vtx_gate: HALTI2                      # pure int needs HALTI2
+  tex: EXT_R8I
+  tex_gate: HALTI2                      # pure int needs HALTI2
+  pe: R8I
+  pe_gate: HALTI5                       # R8 needs HALTI5
+
+- pipe: R8_USCALED
+  vtx: UNSIGNED_BYTE
+
+- pipe: R8_SSCALED
+  vtx: BYTE
+
+- pipe: A8_UNORM
+  tex: A8
+
+- pipe: L8_UNORM
+  tex: L8
+
+- pipe: I8_UNORM
+  tex: I8
+
+# 16-bit
+- pipe: R16_UNORM
+  vtx: UNSIGNED_SHORT
+
+- pipe: R16_SNORM
+  vtx: SHORT
+
+- pipe: R16_UINT
+  vtx: SHORT_I
+  vtx_gate: HALTI2                      # pure int needs HALTI2
+  tex: EXT_R16I
+  tex_gate: HALTI2                      # pure int needs HALTI2
+  pe: R16I
+  pe_gate: HALTI2                       # pure int needs HALTI2
+
+- pipe: R16_SINT
+  vtx: SHORT_I
+  vtx_gate: HALTI2                      # pure int needs HALTI2
+  tex: EXT_R16I
+  tex_gate: HALTI2                      # pure int needs HALTI2
+  pe: R16I
+  pe_gate: HALTI2                       # pure int needs HALTI2
+
+- pipe: R16_USCALED
+  vtx: UNSIGNED_SHORT
+
+- pipe: R16_SSCALED
+  vtx: SHORT
+
+- pipe: R16_FLOAT
+  vtx: HALF_FLOAT
+  tex: EXT_R16F
+  tex_gate: HALTI2                      # float needs HALTI2
+  pe: R16F
+  pe_gate: HALTI2                       # float needs HALTI2
+
+- pipe: B4G4R4A4_UNORM
+  tex: A4R4G4B4
+  pe: A4R4G4B4
+
+- pipe: B4G4R4X4_UNORM
+  tex: X4R4G4B4
+  pe: X4R4G4B4
+
+- pipe: L8A8_UNORM
+  tex: A8L8
+
+- pipe: Z16_UNORM
+  tex: D16
+  zs: D16
+
+- pipe: B5G6R5_UNORM
+  tex: R5G6B5
+  pe: R5G6B5
+
+- pipe: B5G5R5A1_UNORM
+  tex: A1R5G5B5
+  pe: A1R5G5B5
+
+- pipe: B5G5R5X1_UNORM
+  tex: X1R5G5B5
+  pe: X1R5G5B5
+
+- pipe: R8G8_UNORM
+  vtx: UNSIGNED_BYTE
+  tex: EXT_G8R8
+  tex_gate: HALTI0
+  pe: G8R8
+  pe_gate: HALTI2                       # R8G8 needs HALTI2
+
+- pipe: R8G8_SNORM
+  vtx: BYTE
+  tex: EXT_G8R8_SNORM
+  tex_gate: HALTI1                      # snorm needs HALTI1
+
+- pipe: R8G8_UINT
+  vtx: BYTE_I
+  vtx_gate: HALTI2                      # pure int needs HALTI2
+  tex: EXT_G8R8I
+  tex_gate: HALTI2                      # pure int needs HALTI2
+  pe: G8R8I
+  pe_gate: HALTI2                       # pure int needs HALTI2
+
+- pipe: R8G8_SINT
+  vtx: BYTE_I
+  vtx_gate: HALTI2                      # pure int needs HALTI2
+  tex: EXT_G8R8I
+  tex_gate: HALTI2                      # pure int needs HALTI2
+  pe: G8R8I
+  pe_gate: HALTI2                       # pure int needs HALTI2
+
+- pipe: R8G8_USCALED
+  vtx: UNSIGNED_BYTE
+
+- pipe: R8G8_SSCALED
+  vtx: BYTE
+
+# 24-bit
+- pipe: R8G8B8_UNORM
+  vtx: UNSIGNED_BYTE
+
+- pipe: R8G8B8_SNORM
+  vtx: BYTE
+
+- pipe: R8G8B8_UINT
+  vtx: BYTE_I
+  vtx_gate: HALTI2                      # pure int needs HALTI2
+
+- pipe: R8G8B8_SINT
+  vtx: BYTE_I
+  vtx_gate: HALTI2                      # pure int needs HALTI2
+
+- pipe: R8G8B8_USCALED
+  vtx: UNSIGNED_BYTE
+
+- pipe: R8G8B8_SSCALED
+  vtx: BYTE
+
+# 32-bit
+- pipe: R32_UNORM
+  vtx: UNSIGNED_INT
+
+- pipe: R32_SNORM
+  vtx: INT
+
+- pipe: R32_UINT
+  vtx: FLOAT
+  vtx_gate: HALTI2                      # pure int needs HALTI2
+  tex: EXT_R32F
+  tex_gate: HALTI2                      # pure int needs HALTI2
+  pe: R32F
+  pe_gate: HALTI2                       # pure int needs HALTI2
+
+- pipe: R32_SINT
+  vtx: FLOAT
+  vtx_gate: HALTI2                      # pure int needs HALTI2
+  tex: EXT_R32F
+  tex_gate: HALTI2                      # pure int needs HALTI2
+  pe: R32F
+  pe_gate: HALTI2                       # pure int needs HALTI2
+
+- pipe: R32_USCALED
+  vtx: UNSIGNED_INT
+
+- pipe: R32_SSCALED
+  vtx: INT
+
+- pipe: R32_FLOAT
+  vtx: FLOAT
+  tex: EXT_R32F
+  tex_gate: HALTI2                      # float needs HALTI2
+  pe: R32F
+  pe_gate: HALTI2                       # float needs HALTI2
+
+- pipe: R32_FIXED
+  vtx: FIXED
+
+- pipe: Z32_FLOAT
+  tex: EXT_R32F
+  tex_gate: HALTI2                      # float needs HALTI2
+  zs: D24S8
+  emulated: S8_UINT_Z24_UNORM
+  emulation: DEPTH32F
+
+- pipe: Z32_FLOAT_S8X24_UINT
+  tex: EXT_R32F
+  tex_gate: HALTI2                      # pure int needs HALTI2
+  zs: D24S8
+  emulated: S8_UINT_Z24_UNORM
+  emulation: DEPTH32F
+
+- pipe: R16G16_UNORM
+  vtx: UNSIGNED_SHORT
+
+- pipe: R16G16_SNORM
+  vtx: SHORT
+
+- pipe: R16G16_UINT
+  vtx: SHORT_I
+  vtx_gate: HALTI2                      # pure int needs HALTI2
+  tex: EXT_G16R16I
+  tex_gate: HALTI2                      # pure int needs HALTI2
+  pe: G16R16I
+  pe_gate: HALTI2                       # pure int needs HALTI2
+
+- pipe: R16G16_SINT
+  vtx: SHORT_I
+  vtx_gate: HALTI2                      # pure int needs HALTI2
+  tex: EXT_G16R16I
+  tex_gate: HALTI2                      # pure int needs HALTI2
+  pe: G16R16I
+  pe_gate: HALTI2                       # pure int needs HALTI2
+
+- pipe: R16G16_USCALED
+  vtx: UNSIGNED_SHORT
+
+- pipe: R16G16_SSCALED
+  vtx: SHORT
+
+- pipe: R16G16_FLOAT
+  vtx: HALF_FLOAT
+  tex: EXT_G16R16F
+  tex_gate: HALTI2                      # float needs HALTI2
+  pe: G16R16F
+  pe_gate: HALTI2                       # float needs HALTI2
+
+- pipe: A8B8G8R8_UNORM
+  vtx: UNSIGNED_BYTE
+
+- pipe: R8G8B8A8_UNORM
+  vtx: UNSIGNED_BYTE
+  tex: A8R8G8B8
+  pe: A8R8G8B8
+  rb_swap: true
+
+- pipe: R8G8B8A8_SNORM
+  vtx: BYTE
+  tex: EXT_A8B8G8R8_SNORM
+  tex_gate: HALTI1                      # snorm needs HALTI1
+
+- pipe: R8G8B8X8_UNORM
+  tex: X8R8G8B8
+  pe: X8R8G8B8
+  rb_swap: true
+
+- pipe: R8G8B8X8_SNORM
+  tex: EXT_X8B8G8R8_SNORM
+  tex_gate: HALTI1                      # snorm needs HALTI1
+
+- pipe: R8G8B8A8_UINT
+  vtx: BYTE_I
+  vtx_gate: HALTI2                      # pure int needs HALTI2
+  tex: EXT_A8B8G8R8I
+  tex_gate: HALTI2                      # pure int needs HALTI2
+  pe: A8B8G8R8I
+  pe_gate: HALTI2                       # pure int needs HALTI2
+
+- pipe: R8G8B8A8_SINT
+  vtx: BYTE_I
+  vtx_gate: HALTI2                      # pure int needs HALTI2
+  tex: EXT_A8B8G8R8I
+  tex_gate: HALTI2                      # pure int needs HALTI2
+  pe: A8B8G8R8I
+  pe_gate: HALTI2                       # pure int needs HALTI2
+
+- pipe: R8G8B8A8_USCALED
+  vtx: UNSIGNED_BYTE
+  pe: A8R8G8B8
+  rb_swap: true
+
+- pipe: R8G8B8A8_SSCALED
+  vtx: BYTE
+  pe: A8R8G8B8
+  rb_swap: true
+
+- pipe: B8G8R8A8_UNORM
+  tex: A8R8G8B8
+  pe: A8R8G8B8
+
+- pipe: B8G8R8X8_UNORM
+  tex: X8R8G8B8
+  pe: X8R8G8B8
+
+- pipe: R10G10B10A2_UNORM
+  vtx: UNSIGNED_INT_2_10_10_10_REV
+  vtx_gate: HALTI2                      # ARB_vertex_type_2_10_10_10_rev needs HALTI2
+  tex: EXT_A2B10G10R10
+  tex_gate: HALTI0                      # Extd. format needs HALTI0
+  pe: A2B10G10R10
+  pe_gate: HALTI0                       # Extd. format needs HALTI0
+
+- pipe: R10G10B10X2_UNORM
+  tex: EXT_A2B10G10R10
+  tex_gate: HALTI0                      # Extd. format needs HALTI0
+  pe: A2B10G10R10
+  pe_gate: HALTI0                       # Extd. format needs HALTI0
+
+- pipe: R10G10B10A2_SNORM
+  vtx: INT_2_10_10_10_REV
+  vtx_gate: HALTI2                      # ARB_vertex_type_2_10_10_10_rev needs HALTI2
+
+- pipe: R10G10B10A2_UINT
+  tex: EXT_A2B10G10R10UI
+  tex_gate: HALTI2                      # pure int needs HALTI2
+  pe: A2B10G10R10UI
+  pe_gate: HALTI2                       # pure int needs HALTI2
+
+- pipe: R10G10B10A2_USCALED
+  vtx: UNSIGNED_INT_2_10_10_10_REV
+  vtx_gate: HALTI2                      # ARB_vertex_type_2_10_10_10_rev needs HALTI2
+
+- pipe: R10G10B10A2_SSCALED
+  vtx: INT_2_10_10_10_REV
+  vtx_gate: HALTI2                      # ARB_vertex_type_2_10_10_10_rev needs HALTI2
+
+- pipe: B10G10R10A2_UNORM
+  vtx: UNSIGNED_INT_10_10_10_2
+  vtx_gate: HALTI2                      # ARB_vertex_type_2_10_10_10_rev needs HALTI2
+
+- pipe: B10G10R10A2_SNORM
+  vtx: INT_10_10_10_2
+  vtx_gate: HALTI2                      # ARB_vertex_type_2_10_10_10_rev needs HALTI2
+
+- pipe: B10G10R10A2_USCALED
+  vtx: UNSIGNED_INT_10_10_10_2
+  vtx_gate: HALTI2                      # ARB_vertex_type_2_10_10_10_rev needs HALTI2
+
+- pipe: B10G10R10A2_SSCALED
+  vtx: INT_10_10_10_2
+  vtx_gate: HALTI2                      # ARB_vertex_type_2_10_10_10_rev needs HALTI2
+
+- pipe: X8Z24_UNORM
+  tex: D24X8
+  zs: D24S8
+
+- pipe: S8_UINT_Z24_UNORM
+  tex: D24X8
+  zs: D24S8
+
+- pipe: S8_UINT
+  tex: EXT_R8I
+  tex_gate: S8                          # S8 needs S8
+  zs: D24S8
+  zs_gate: S8                           # S8 needs S8
+
+- pipe: S8X24_UINT
+  tex: EXT_D24S8
+  tex_gate: HALTI2                      # pure int needs HALTI2,
+                                        # also depends on texture descriptor
+
+- pipe: X32_S8X24_UINT
+  tex: EXT_D24S8
+  tex_gate: HALTI2                      # pure int needs HALTI2,
+                                        # also depends on texture descriptor
+
+- pipe: R9G9B9E5_FLOAT
+  tex: E5B9G9R9
+  tex_gate: HALTI2                      # float needs HALTI2
+
+- pipe: R11G11B10_FLOAT
+  tex: EXT_B10G11R11F
+  tex_gate: HALTI2                      # float needs HALTI2
+  pe: B10G11R11F
+  pe_gate: HALTI2                       # float needs HALTI2
+
+# 48-bit
+- pipe: R16G16B16_UNORM
+  vtx: UNSIGNED_SHORT
+
+- pipe: R16G16B16_SNORM
+  vtx: SHORT
+
+- pipe: R16G16B16_UINT
+  vtx: SHORT_I
+  vtx_gate: HALTI2                      # pure int needs HALTI2
+
+- pipe: R16G16B16_SINT
+  vtx: SHORT_I
+  vtx_gate: HALTI2                      # pure int needs HALTI2
+
+- pipe: R16G16B16_USCALED
+  vtx: UNSIGNED_SHORT
+
+- pipe: R16G16B16_SSCALED
+  vtx: SHORT
+
+- pipe: R16G16B16_FLOAT
+  vtx: HALF_FLOAT
+
+# 64-bit
+- pipe: R16G16B16A16_UNORM
+  vtx: UNSIGNED_SHORT
+
+- pipe: R16G16B16A16_SNORM
+  vtx: SHORT
+
+- pipe: R16G16B16A16_UINT
+  vtx: SHORT_I
+  vtx_gate: HALTI2                      # pure int needs HALTI2
+  tex: EXT_A16B16G16R16I
+  tex_gate: HALTI2                      # pure int needs HALTI2
+  pe: A16B16G16R16I
+  pe_gate: HALTI2                       # pure int needs HALTI2
+
+- pipe: R16G16B16A16_SINT
+  vtx: SHORT_I
+  vtx_gate: HALTI2                      # pure int needs HALTI2
+  tex: EXT_A16B16G16R16I
+  tex_gate: HALTI2                      # pure int needs HALTI2
+  pe: A16B16G16R16I
+  pe_gate: HALTI2                       # pure int needs HALTI2
+
+- pipe: R16G16B16A16_USCALED
+  vtx: UNSIGNED_SHORT
+
+- pipe: R16G16B16A16_SSCALED
+  vtx: SHORT
+
+- pipe: R16G16B16A16_FLOAT
+  vtx: HALF_FLOAT
+  tex: EXT_A16B16G16R16F
+  tex_gate: HALTI2                      # float needs HALTI2
+  pe: A16B16G16R16F
+  pe_gate: HALTI2                       # float needs HALTI2
+
+- pipe: R32G32_UNORM
+  vtx: UNSIGNED_INT
+
+- pipe: R32G32_SNORM
+  vtx: INT
+
+- pipe: R32G32_UINT
+  vtx: FLOAT
+  vtx_gate: HALTI2                      # pure int needs HALTI2
+  tex: EXT_G32R32F
+  tex_gate: HALTI2                      # pure int needs HALTI2
+  pe: G32R32F
+  pe_gate: HALTI2                       # pure int needs HALTI2
+
+- pipe: R32G32_SINT
+  vtx: FLOAT
+  vtx_gate: HALTI2                      # pure int needs HALTI2
+  tex: EXT_G32R32F
+  tex_gate: HALTI2                      # pure int needs HALTI2
+  pe: G32R32F
+  pe_gate: HALTI2                       # pure int needs HALTI2
+
+- pipe: R32G32_USCALED
+  vtx: UNSIGNED_INT
+
+- pipe: R32G32_SSCALED
+  vtx: INT
+
+- pipe: R32G32_FLOAT
+  vtx: FLOAT
+  tex: EXT_G32R32F
+  tex_gate: HALTI2                      # float needs HALTI2
+  pe: G32R32F
+  pe_gate: HALTI2                       # float needs HALTI2
+
+- pipe: R32G32_FIXED
+  vtx: FIXED
+
+# 96-bit
+- pipe: R32G32B32_UNORM
+  vtx: UNSIGNED_INT
+
+- pipe: R32G32B32_SNORM
+  vtx: INT
+
+- pipe: R32G32B32_UINT
+  vtx: FLOAT
+  vtx_gate: HALTI2                      # pure int needs HALTI2
+
+- pipe: R32G32B32_SINT
+  vtx: FLOAT
+  vtx_gate: HALTI2                      # pure int needs HALTI2
+
+- pipe: R32G32B32_USCALED
+  vtx: UNSIGNED_INT
+
+- pipe: R32G32B32_SSCALED
+  vtx: INT
+
+- pipe: R32G32B32_FLOAT
+  vtx: FLOAT
+
+- pipe: R32G32B32_FIXED
+  vtx: FIXED
+
+# 128-bit
+- pipe: R32G32B32A32_UNORM
+  vtx: UNSIGNED_INT
+
+- pipe: R32G32B32A32_SNORM
+  vtx: INT
+
+- pipe: R32G32B32A32_UINT
+  vtx: FLOAT
+  vtx_gate: HALTI2                      # pure int needs HALTI2
+  tex: EXT_G32R32I
+  tex_gate: HALTI5                      # G32R32I emu needs HALTI5
+  pe: G32R32F
+  pe_gate: HALF_FLOAT                   # G32R32F needs HALF_FLOAT
+  emulated: R32G32_UINT
+  emulation: 128BIT
+
+- pipe: R32G32B32A32_SINT
+  vtx: FLOAT
+  vtx_gate: HALTI2                      # pure int needs HALTI2
+  tex: EXT_G32R32I
+  tex_gate: HALTI5                      # G32R32I emu needs HALTI5
+  pe: G32R32F
+  pe_gate: HALF_FLOAT                   # G32R32F needs HALF_FLOAT
+  emulated: R32G32_SINT
+  emulation: 128BIT
+
+- pipe: R32G32B32A32_USCALED
+  vtx: UNSIGNED_INT
+
+- pipe: R32G32B32A32_SSCALED
+  vtx: INT
+
+- pipe: R32G32B32A32_FLOAT
+  vtx: FLOAT
+  tex: EXT_G32R32F
+  tex_gate: HALF_FLOAT                  # R32G32_FLOAT emu needs HALF_FLOAT
+  pe: G32R32F
+  pe_gate: HALF_FLOAT                   # G32R32F needs HALF_FLOAT
+  emulated: R32G32_FLOAT
+  emulation: 128BIT
+
+- pipe: R32G32B32A32_FIXED
+  vtx: FIXED
+
+# compressed
+- pipe: ETC1_RGB8
+  tex: ETC1
+  tex_gate: ETC1_TEXTURE_COMPRESSION    # ETC1 needs ETC1_TEXTURE_COMPRESSION
+
+- pipe: DXT1_RGB
+  tex: DXT1
+  tex_gate: DXT_TEXTURE_COMPRESSION     # DXT needs DXT_TEXTURE_COMPRESSION
+
+- pipe: DXT1_RGBA
+  tex: DXT1
+  tex_gate: DXT_TEXTURE_COMPRESSION     # DXT needs DXT_TEXTURE_COMPRESSION
+
+- pipe: DXT3_RGBA
+  tex: DXT2_DXT3
+  tex_gate: DXT_TEXTURE_COMPRESSION     # DXT needs DXT_TEXTURE_COMPRESSION
+
+- pipe: DXT5_RGBA
+  tex: DXT4_DXT5
+  tex_gate: DXT_TEXTURE_COMPRESSION     # DXT needs DXT_TEXTURE_COMPRESSION
+
+- pipe: ETC2_RGB8
+  tex: EXT_NONE                         # Extd. format NONE doubles as ETC2_RGB8
+  tex_gate: HALTI0                      # Extd. format needs HALTI0
+
+- pipe: ETC2_RGB8A1
+  tex: EXT_RGB8_PUNCHTHROUGH_ALPHA1_ETC2
+  tex_gate: HALTI0                      # Extd. format needs HALTI0
+
+- pipe: ETC2_RGBA8
+  tex: EXT_RGBA8_ETC2_EAC
+  tex_gate: HALTI0                      # Extd. format needs HALTI0
+
+- pipe: ETC2_R11_UNORM
+  tex: EXT_R11_EAC
+  tex_gate: HALTI0                      # Extd. format needs HALTI0
+
+- pipe: ETC2_R11_SNORM
+  tex: EXT_SIGNED_R11_EAC
+  tex_gate: HALTI1                      # snorm needs HALTI1
+
+- pipe: ETC2_RG11_UNORM
+  tex: EXT_RG11_EAC
+  tex_gate: HALTI0                      # Extd. format needs HALTI0
+
+- pipe: ETC2_RG11_SNORM
+  tex: EXT_SIGNED_RG11_EAC
+  tex_gate: HALTI1                      # snorm needs HALTI1
+
+- pipe: ASTC_4x4
+  tex: ASTC_RGBA_4x4
+  tex_gate: TEXTURE_ASTC                # ASTC needs TEXTURE_ASTC
+
+- pipe: ASTC_5x4
+  tex: ASTC_RGBA_5x4
+  tex_gate: TEXTURE_ASTC                # ASTC needs TEXTURE_ASTC
+
+- pipe: ASTC_5x5
+  tex: ASTC_RGBA_5x5
+  tex_gate: TEXTURE_ASTC                # ASTC needs TEXTURE_ASTC
+
+- pipe: ASTC_6x5
+  tex: ASTC_RGBA_6x5
+  tex_gate: TEXTURE_ASTC                # ASTC needs TEXTURE_ASTC
+
+- pipe: ASTC_6x6
+  tex: ASTC_RGBA_6x6
+  tex_gate: TEXTURE_ASTC                # ASTC needs TEXTURE_ASTC
+
+- pipe: ASTC_8x5
+  tex: ASTC_RGBA_8x5
+  tex_gate: TEXTURE_ASTC                # ASTC needs TEXTURE_ASTC
+
+- pipe: ASTC_8x6
+  tex: ASTC_RGBA_8x6
+  tex_gate: TEXTURE_ASTC                # ASTC needs TEXTURE_ASTC
+
+- pipe: ASTC_8x8
+  tex: ASTC_RGBA_8x8
+  tex_gate: TEXTURE_ASTC                # ASTC needs TEXTURE_ASTC
+
+- pipe: ASTC_10x5
+  tex: ASTC_RGBA_10x5
+  tex_gate: TEXTURE_ASTC                # ASTC needs TEXTURE_ASTC
+
+- pipe: ASTC_10x6
+  tex: ASTC_RGBA_10x6
+  tex_gate: TEXTURE_ASTC                # ASTC needs TEXTURE_ASTC
+
+- pipe: ASTC_10x8
+  tex: ASTC_RGBA_10x8
+  tex_gate: TEXTURE_ASTC                # ASTC needs TEXTURE_ASTC
+
+- pipe: ASTC_10x10
+  tex: ASTC_RGBA_10x10
+  tex_gate: TEXTURE_ASTC                # ASTC needs TEXTURE_ASTC
+
+- pipe: ASTC_12x10
+  tex: ASTC_RGBA_12x10
+  tex_gate: TEXTURE_ASTC                # ASTC needs TEXTURE_ASTC
+
+- pipe: ASTC_12x12
+  tex: ASTC_RGBA_12x12
+  tex_gate: TEXTURE_ASTC                # ASTC needs TEXTURE_ASTC
+
+# YUV
+- pipe: YUYV
+  tex: YUY2
+  pe: YUY2
+
+- pipe: UYVY
+  tex: UYVY
+
+# multi-planar YUV
+- pipe: NV12
+  tex: YUY2
+  tex_gate: YUV420_TILER                # NV12 needs YUV420_TILER

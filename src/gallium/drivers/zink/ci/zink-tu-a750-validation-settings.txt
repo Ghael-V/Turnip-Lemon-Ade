@@ -1,0 +1,143 @@
+# Please include a comment with the log message and a testcase triggering each
+# VUID at the bottom of the file.
+khronos_validation.message_id_filter = VUID-VkPhysicalDeviceProperties2-pNext-pNext,VUID-VkDeviceCreateInfo-pNext-pNext,VUID-vkDestroyDevice-device-05137,VUID-VkRenderingAttachmentInfo-None-12256,VUID-VkDeviceAddress-size-11364,VUID-VkStridedDeviceAddressRangeKHR-address-11365,VUID-VkDescriptorGetInfoEXT-type-12493,VUID-RuntimeSpirv-OpEntryPoint-08743,VUID-vkDestroyImage-image-01000,VUID-VkPresentInfoKHR-pImageIndices-01430,VUID-StandaloneSpirv-OpEntryPoint-08721,VUID-vkCmdBeginQuery-queryPool-01922,VUID-vkDestroySemaphore-semaphore-05149,VUID-VkRenderingAttachmentInfo-imageView-06130,VUID-vkResetCommandPool-commandPool-00040,VUID-VkImageCreateInfo-pNext-00990,VUID-vkDestroySemaphore-semaphore-05149,VUID-vkResetCommandPool-commandPool-00040,VUID-VkImageCreateInfo-pNext-00990,VUID-VkMemoryAllocateInfo-pNext-12539,VUID-vkDestroyImageView-imageView-01026
+khronos_validation.report_flags = error
+khronos_validation.debug_action = VK_DBG_LAYER_ACTION_LOG_MSG,VK_DBG_LAYER_ACTION_BREAK
+VK_LAYER_ENABLES=VK_VALIDATION_FEATURE_ENABLE_DEBUG_PRINTF_EXT
+khronos_validation.printf_buffer_size = 40960
+khronos_validation.printf_to_stdout = true
+khronos_validation.log_filename = stdout
+
+# VUID-VkPhysicalDeviceProperties2-pNext-pNext
+# VUID-VkDeviceCreateInfo-pNext-pNext
+# never error due to unrecognized extensions
+
+
+# dEQP-GLES3.functional.draw.random.135
+#
+# Validation Error: [ VUID-vkDestroyDevice-device-05137 ] | MessageID = 0x4872eaa0
+# vkDestroyDevice(): Object Tracking - For VkDevice 0xaaab09ea5e50, VkImage 0x210000000021 has not been destroyed.
+# The Vulkan spec states: All child objects created on device that can be destroyed or freed must have been destroyed or freed prior to destroying device
+# (https://docs.vulkan.org/spec/latest/chapters/devsandqueues.html#VUID-vkDestroyDevice-device-05137)
+# Objects: 1
+#     [0] VkImage 0x210000000021
+
+# dEQP-GLES2.functional.multisampled_render_to_texture.readpixels
+#
+# Validation Error: [ VUID-VkRenderingAttachmentInfo-None-12256 ] | MessageID = 0x93b0a512
+# vkCmdBeginRendering(): pRenderingInfo->pColorAttachments[0].resolveMode is VK_RESOLVE_MODE_NONE but imageView is VK_SAMPLE_COUNT_1_BIT and VkMultisampledRenderToSingleSampledInfoEXT::multisampledRenderToSingleSampledEnable is VK_TRUE.
+# The Vulkan spec states: If all of the following are true: imageView is not VK_NULL_HANDLE imageView has a sample count of VK_SAMPLE_COUNT_1_BIT the pNext chain of VkRenderingInfo includes a VkMultisampledRenderToSingleSampledInfoEXT structure with the multisampledRenderToSingleSampledEnable field equal to VK_TRUE then resolveMode must not be VK_RESOLVE_MODE_NONE (https://docs.vulkan.org/spec/latest/chapters/renderpass.html#VUID-VkRenderingAttachmentInfo-None-12256)
+# Objects: 1
+#     [0] VkCommandBuffer 0xaaaae2a8e0d0[zink barrier cmdbuf]
+
+# VUID-VkDeviceAddress-size-11364,VUID-VkStridedDeviceAddressRangeKHR-address-11365
+# needs vk extension
+
+# KHR-GL46.sparse_buffer_tests.BufferStorageTest_case_i
+#
+# Validation Error: [ VUID-VkDescriptorGetInfoEXT-type-12493 ] | MessageID = 0x4227fe25
+# vkGetDescriptorEXT(): pDescriptorInfo->data.pStorageBuffer->range (1049362432) is greater than maxStorageBufferRange (134217728)
+# Hint: You can have multiple descriptors point to different parts of the Storage Buffer
+# Hint: This can be relaxed if shader64BitIndexing is enabled.
+# The Vulkan spec states: If type is VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, the shader64BitIndexing feature is not enabled, and pStorageBuffer->address is not 0, pStorageBuffer->range must be less than or equal to maxStorageBufferRange (https://docs.vulkan.org/spec/latest/chapters/descriptorbuffers.html#VUID-VkDescriptorGetInfoEXT-type-12493)
+
+# KHR-GL46.shading_language_420pack.length_of_vector_and_matrix_type_float_cols_4_rows_4
+#
+# Validation Error: [ VUID-RuntimeSpirv-OpEntryPoint-08743 ] | MessageID = 0x89925893
+# vkCreateGraphicsPipelines(): pCreateInfos[0] (SPIR-V Interface) [VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT] has a declared Input at Location 4 Component 2  but the previous stage ([VK_SHADER_STAGE_VERTEX_BIT]) has no Output declared there.
+# The input variable is:
+#   pointer to Input -> array[32] of array[4] of vec4 of float32
+# The Vulkan spec states: Any user-defined variables shared between the OpEntryPoint of two shader stages, and declared with Input as its Storage Class for the subsequent shader stage, must have all Location slots and Component words declared in the preceding shader stage's OpEntryPoint with Output as the Storage Class (https://docs.vulkan.org/spec/latest/appendices/spirvenv.html#VUID-RuntimeSpirv-OpEntryPoint-08743)
+# Objects: 2
+#     [0] VkShaderModule 0xab91000000ab91
+#     [1] VkShaderModule 0xab92000000ab92
+
+# glx@glx_ext_no_config_context@no fbconfig
+#
+# Validation Error: [ VUID-vkDestroyImage-image-01000 ] | MessageID = 0xf2d29b5a
+# vkDestroyImage(): can't be called on VkImage 0xb900000000b9 that is currently in use by VkCommandBuffer 0xaaaab123e170[zink barrier cmdbuf].
+# The Vulkan spec states: All submitted commands that refer to image, either directly or via a VkImageView, must have completed execution (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-vkDestroyImage-image-01000)
+
+# glx@glx-make-current
+#
+# Validation Error: [ VUID-VkPresentInfoKHR-pImageIndices-01430 ] | MessageID = 0x48ad24c6
+# vkQueuePresentKHR(): pPresentInfo images passed to present must be in layout VK_IMAGE_LAYOUT_PRESENT_SRC_KHR or VK_IMAGE_LAYOUT_SHARED_PRESENT_KHR but VkImage 0x460000000046 is in VK_IMAGE_LAYOUT_GENERAL.
+# The Vulkan spec states: Each element of pImageIndices must be the index of a presentable image acquired from the swapchain specified by the corresponding element of the pSwapchains array, and the presented image subresource must be in the VK_IMAGE_LAYOUT_PRESENT_SRC_KHR or VK_IMAGE_LAYOUT_SHARED_PRESENT_KHR layout at the time the operation is executed on a VkDevice (https://docs.vulkan.org/spec/latest/chapters/VK_KHR_surface/wsi.html#VUID-VkPresentInfoKHR-pImageIndices-01430)
+# Objects: 1
+#     [0] VkImage 0x460000000046
+
+# spec@!opengl 2.0@vertex-program-two-side enabled back
+#
+# Validation Error: [ VUID-StandaloneSpirv-OpEntryPoint-08721 ] | MessageID = 0xed5eb645
+# vkCreateShaderModule(): pCreateInfo->pCode (spirv-val produced an error):
+# Entry-point has conflicting input location assignment at location 0, component 0
+#   OpEntryPoint Fragment %main "main" %14 %18 %19 %gl_FragData_0_ %gl_FragData_1_ %gl_FragData_2_ %gl_FragData_3_ %gl_FragData_4_ %gl_FragData_5_ %gl_FragData_6_ %gl_FragData_7_ %gl_FrontFacing
+#
+# Command to reproduce:
+#	spirv-val <input.spv> --relax-block-layout --uniform-buffer-standard-layout --scalar-block-layout --workgroup-scalar-block-layout --allow-localsizeid --allow-offset-texture-operand --allow-vulkan-32-bit-bitwise --target-env vulkan1.4
+#
+# The Vulkan spec states: Each OpEntryPoint must not have more than one Input variable assigned the same Component word inside a Location slot, either explicitly or implicitly (https://docs.vulkan.org/spec/latest/appendices/spirvenv.html#VUID-StandaloneSpirv-OpEntryPoint-08721)
+
+# spec@arb_pipeline_statistics_query@arb_pipeline_statistics_query-clip
+#
+# Validation Error: [ VUID-vkCmdBeginQuery-queryPool-01922 ] | MessageID = 0xeeb9cdf3
+# vkCmdBeginQuery(): query 0 in VkQueryPool 0x2c000000002c has the same queryType (VK_QUERY_TYPE_PIPELINE_STATISTICS) as the active query 0 from VkQueryPool 0x2b000000002b (both are using index 0) in VkCommandBuffer 0xaaaad5bc4aa0[zink cmdbuf].
+# The Vulkan spec states: queryPool must have been created with a queryType that differs from that of any queries that are active within commandBuffer (https://docs.vulkan.org/spec/latest/chapters/queries.html#VUID-vkCmdBeginQuery-queryPool-01922)
+# Objects: 3
+#     [0] VkCommandBuffer 0xaaaad5bc4aa0[zink cmdbuf]
+#     [1] VkQueryPool 0x2c000000002c
+#     [2] VkQueryPool 0x2b000000002b
+
+# spec@ext_external_objects@vk-ping-pong-multi-sem
+#
+# Validation Error: [ VUID-vkDestroySemaphore-semaphore-05149 ] | MessageID = 0x93e24db1
+# vkDestroySemaphore(): can't be called on VkSemaphore 0x200000000020 that is currently in use by VkQueue 0xaaaac5d200b0
+# The Vulkan spec states: All submitted batches that refer to semaphore must have completed execution (https://docs.vulkan.org/spec/latest/chapters/synchronization.html#VUID-vkDestroySemaphore-semaphore-05149)
+
+# spec@ext_framebuffer_multisample@int-draw-buffers-alpha-to-one 4
+#
+# Validation Error: [ VUID-VkRenderingAttachmentInfo-imageView-06130 ] | MessageID = 0x3a1ccba9
+# vkCmdBeginRendering(): pRenderingInfo->pColorAttachments[0].resolveMode (VK_RESOLVE_MODE_AVERAGE_BIT) is not valid for integer formats (VK_FORMAT_R8G8B8A8_SINT)
+# Valid resolveMode: NONE, SAMPLE_ZERO, CUSTOM, EXTERNAL_FORMAT_DOWNSAMPLE.
+# The Vulkan spec states: If imageView is not VK_NULL_HANDLE and has an integer color format, resolveMode must be VK_RESOLVE_MODE_NONE or VK_RESOLVE_MODE_CUSTOM_BIT_EXT or VK_RESOLVE_MODE_EXTERNAL_FORMAT_DOWNSAMPLE_BIT_ANDROID or VK_RESOLVE_MODE_SAMPLE_ZERO_BIT (https://docs.vulkan.org/spec/latest/chapters/renderpass.html#VUID-VkRenderingAttachmentInfo-imageView-06130)
+# Objects: 5
+#     [0] VkCommandBuffer 0xaaaade1887b0[zink cmdbuf]
+#     [1] VkImageView 0x420000000042
+#     [2] VkImage 0x1d000000001d
+#     [3] VkImageView 0x450000000045
+#     [4] VkImage 0x240000000024
+
+# spec@glsl-1.50@execution@geometry@primitive-id-restart gl_line_strip_adjacency other
+#
+# Validation Error: [ VUID-vkResetCommandPool-commandPool-00040 ] | MessageID = 0xb53e2331
+# vkResetCommandPool(): (VkCommandBuffer 0xaaaacd49aa60[zink cmdbuf]) is in use.
+# (a VK_ERROR_DEVICE_LOST has occurred, the command pool must be destroyed).
+# The Vulkan spec states: All VkCommandBuffer objects allocated from commandPool must not be in the pending state (https://docs.vulkan.org/spec/latest/chapters/cmdbuffers.html#VUID-vkResetCommandPool-commandPool-00040)
+# Objects: 2
+#     [0] VkCommandBuffer 0xaaaacd49aa60[zink cmdbuf]
+#     [1] VkCommandPool 0x160000000016
+
+# spec@egl 1.4@egl-ext_egl_image_storage
+#
+# Validation Error: [ VUID-VkImageCreateInfo-pNext-00990 ] | MessageID = 0x466ca6a5
+# vkCreateImage(): pCreateInfo The handle type (VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT) with VkImageCreateInfo
+# format (VK_FORMAT_R8G8B8A8_UNORM)
+# type (VK_IMAGE_TYPE_3D)
+# tiling (VK_IMAGE_TILING_DRM_FORMAT_MODIFIER_EXT)
+# usage (VK_IMAGE_USAGE_2_TRANSFER_SRC_BIT_KHR|VK_IMAGE_USAGE_2_TRANSFER_DST_BIT_KHR|VK_IMAGE_USAGE_2_SAMPLED_BIT_KHR|VK_IMAGE_USAGE_2_COLOR_ATTACHMENT_BIT_KHR|VK_IMAGE_USAGE_2_INPUT_ATTACHMENT_BIT_KHR|VK_IMAGE_USAGE_2_ATTACHMENT_FEEDBACK_LOOP_BIT_EXT)
+# flags (VK_IMAGE_CREATE_2_MUTABLE_FORMAT_BIT_KHR|VK_IMAGE_CREATE_2_2D_ARRAY_COMPATIBLE_BIT_KHR)
+# is not a supported combination of parameters, and vkGetPhysicalDeviceImageFormatProperties2 returned VK_ERROR_FORMAT_NOT_SUPPORTED.
+# The Vulkan spec states: If the pNext chain includes a VkExternalMemoryImageCreateInfo structure, its handleTypes member must only contain bits that are also in VkExternalImageFormatProperties::externalMemoryProperties.compatibleHandleTypes, as returned by vkGetPhysicalDeviceImageFormatProperties2 with format, imageType, tiling, usage, and flags equal to those in this structure, and with a VkPhysicalDeviceExternalImageFormatInfo structure included in the pNext chain, with a handleType equal to any one of the handle types specified in VkExternalMemoryImageCreateInfo::handleTypes (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-VkImageCreateInfo-pNext-00990)
+
+# spec@egl 1.4@egl-ext_egl_image_storage
+#
+# Validation Error: [ VUID-VkMemoryAllocateInfo-pNext-12539 ] | MessageID = 0xf2edc553
+# vkAllocateMemory(): pAllocateInfo->pNext<VkExportMemoryAllocateInfo>.handleTypes (VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT) includes VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT, which is not reported as exportable for the dedicated VkImage 0x560000000056.
+# Objects: 1
+#     [0] VkImage 0x560000000056
+
+# spec@arb_direct_state_access@texture-storage-multisample
+#
+# Validation Error: [ VUID-vkDestroyImageView-imageView-01026 ] | MessageID = 0x63ac21f0
+# vkDestroyImageView(): can't be called on VkImageView 0x2f000000002f that is currently in use by VkCommandBuffer 0xaaaace2e2470[zink cmdbuf].
+# The Vulkan spec states: All submitted commands that refer to imageView must have completed execution (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-vkDestroyImageView-imageView-01026)

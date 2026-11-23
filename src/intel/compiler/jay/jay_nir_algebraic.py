@@ -1,0 +1,185 @@
+# Copyright 2024 Intel Corporation
+# SPDX-License-Identifier: MIT
+
+import argparse
+import sys
+from math import pi
+
+a = 'a'
+b = 'b'
+c = 'c'
+
+opt_bool = [
+   # inot is free on xor sources but not dests.
+   (('inot', ('ixor(is_used_once)', ('inot', a), b)), ('ixor', a, b)),
+   (('inot', ('ixor(is_used_once)', a, b)), ('ixor', ('inot', a), b)),
+]
+
+for sz in (16, 32, 64):
+    # For integers, inot is free on iand/ior sources but not destinations, so
+    # apply De Morgan's. For booleans, this is harmful since we want iand/inot
+    # to have no modifiers for our fusing to kick in.
+    opt_bool.extend([
+        (('inot', ('iand(is_used_once)', ('inot', f'a@{sz}'), b)), ('ior', a, ('inot', b))),
+        (('inot', ('ior(is_used_once)', ('inot', f'a@{sz}'), b)), ('iand', a, ('inot', b))),
+        (('inot', ('iand(is_used_once)', f'a@{sz}', b)), ('ior', ('inot', a), ('inot', b))),
+        (('inot', ('ior(is_used_once)', f'a@{sz}', b)), ('iand', ('inot', a), ('inot', b))),
+    ])
+
+lower_algebraic = [
+    (('fsign', a), ('bcsel', ('!flt', 0, a), +1.0,
+                    ('bcsel', ('!flt', a, 0), -1.0, 0.0))),
+    (('fceil', a), ('fneg', ('ffloor', ('fneg', a)))),
+
+    (('isub_sat', a, 0), a),
+    (('isub_sat', a, '#b(is_not_int_min)'), ('isub_sat_intel', a, b)),
+
+    # Split b so neither part is INT_MIN and both can be negated at the
+    # source bit size.  The parts have the same sign, so intermediate
+    # saturation does not change the result.
+    (('isub_sat', a, b),
+     ('isub_sat_intel', ('isub_sat_intel', a, ('ishr_intel', b, 1)),
+      ('iadd', b, ('ineg', ('ishr_intel', b, 1))))),
+
+    # Remove the zeroing. Down-conversion is free but extracts are not.
+    (('u2f32', ('extract_u8', a, 0)), ('u2f32', ('u2u8', a))),
+    (('u2f32', ('extract_u16', a, 0)), ('u2f32', ('u2u16', a))),
+    (('i2f32', ('extract_i8', a, 0)), ('i2f32', ('u2u8', a))),
+    (('i2f32', ('extract_i16', a, 0)), ('i2f32', ('u2u16', a))),
+    (('i2f32', ('extract_u8', 'a@16', 0)), ('u2f32', ('u2u8', a))),
+    (('i2f32', ('extract_u8', 'a@32', 0)), ('u2f32', ('u2u8', a))),
+    (('i2f32', ('extract_u16', 'a@32', 0)), ('u2f32', ('u2u16', a))),
+]
+
+# HW masks non-64-bit shift counts with 31.  NIR assumes mask is bit_size-1.
+for sz in [8, 16, 32, 64]:
+    shift = ('u2u16', b)
+    shift = ('iand', shift, sz - 1) if sz < 32 else shift
+    lower_algebraic.extend([
+        (('ishl', f'a@{sz}', b), ('ishl_intel', a, shift)),
+        (('ishr', f'a@{sz}', b), ('ishr_intel', a, shift)),
+        (('ushr', f'a@{sz}', b), ('ushr_intel', a, shift)),
+    ])
+
+for s in range(1, 31):
+    mask = 0xffffffff << s
+    lower_algebraic.extend([
+        (('iadd', ('ishl', 'a@32', s), ('iand', 'b@32', ~mask)),
+         ('bfi', mask, a, b))
+    ])
+
+lower_algebraic.extend([
+    # Late multiplication handling
+    (('iadd', ('imul_32x16(is_only_used_by_iadd)', a, b), c),
+     ('imad_32x16_intel', a, ('u2u16', b), c)),
+
+    # Fuse multiply-subtract. We put the ineg on the 32-bit source, not the
+    # 16-bit source, to correctly handle b = INT16_MIN.
+    (('iadd', ('ineg(is_only_used_by_iadd)', ('imul_32x16(is_used_once)', a, b)), c),
+     ('imad_32x16_intel', ('ineg', a), ('u2u16', b), c)),
+
+    (('iadd', ('umul_32x16(is_only_used_by_iadd)', a, b), c),
+     ('umad_32x16_intel', a, ('u2u16', b), c)),
+
+    (('iadd', ('imul(is_used_once)', 'a@32', '#b'), c),
+     ('umad_32x16_intel', a, ('u2u16', b),
+      ('umad_32x16_intel', ('iand', b, 0xffff0000), ('u2u16', a), c))),
+
+    (('imul', 'a@32', '#b'),
+     ('umad_32x16_intel', a, ('u2u16', b),
+      ('umad_32x16_intel', ('iand', b, 0xffff0000), ('u2u16', a), 0))),
+
+    # Xe2 has MACL which is more efficient for multiplication with no constants.
+    # On older platforms without MACL, use the above rule as the lowering.
+    (('imul', 'a@32', b),
+     ('umad_32x16_intel', a, ('u2u16', b),
+      ('umad_32x16_intel', ('iand', b, 0xffff0000), ('u2u16', a), 0)),
+     'verx10 < 200'),
+
+    (('pack_half_2x16_split', a, b),
+     ('pack_32_2x16_split', ('f2f16', a), ('f2f16', b))),
+
+    (('imul_32x16', a, b), ('imad_32x16_intel', a, ('u2u16', b), 0)),
+    (('umul_32x16', a, b), ('umad_32x16_intel', a, ('u2u16', b), 0)),
+])
+
+# Fuse iadd+ishl. Prefer imad over umad so we can fold more modifiers.
+for i in range(2, 14):
+    lower_algebraic.extend([
+        (('iadd', ('ishl(is_only_used_by_iadd)', 'b@32', i), c),
+         ('imad_32x16_intel', b, 1 << i, c)),
+
+        (('iadd', ('ineg(is_only_used_by_iadd)', ('ishl(is_used_once)', 'b@32', i)), c),
+         ('imad_32x16_intel', ('ineg', b), 1 << i, c)),
+    ])
+
+lower_algebraic.extend([
+    (('iadd', ('ishl(is_only_used_by_iadd)', 'b@32', i), c),
+     ('umad_32x16_intel', b, 1 << 15, c)),
+])
+
+lower_bool = [
+    # Try to use conditional modifiers more
+    (('ieq', ('iand(is_used_once)', a, b), b),
+     ('ieq', ('iand', ('inot', a), b), 0)),
+    (('ine', ('iand(is_used_once)', a, b), b),
+     ('ine', ('iand', ('inot', a), b), 0)),
+
+    # Clean up after 1-bit phi lowering
+    (('b2b32', ('b2b1', 'a@32')), a),
+
+    # Turn boolean ops into bitwise logic to simplify the backend
+    (('ine', 'a@1', 'b@1'), ('ixor', a, b)),
+    (('ieq', 'a@1', 'b@1'), ('ixor', ('inot', a), b)),
+    (('bcsel', 'a', 'b@1', 'c@1'), ('ior', ('iand', a, b), ('iand', ('inot', a), c))),
+
+    # We do not support 64-bit bcsel, so lower special
+    ((f'b2i64', 'a@1'), ('pack_64_2x32_split', ('bcsel', a, 1, 0), 0)),
+]
+
+for T, sizes, one in [('f', [16, 32], 1.0),
+                      ('i', [8, 16, 32], 1),
+                      ('b', [32], -1)]:
+    for sz in sizes:
+        if T in ['f', 'i']:
+            lower_bool.extend([
+                ((f'{T}neg', (f'b2{T}{sz}', ('inot', 'a@1'))),
+                 ('bcsel', a, 0, -one)),
+                ((f'{T}neg', (f'b2{T}{sz}', 'a@1')), ('bcsel', a, -one, 0)),
+            ])
+
+        lower_bool.extend([
+            ((f'b2{T}{sz}', ('inot', 'a@1')), ('bcsel', a, 0, one)),
+            ((f'b2{T}{sz}', 'a@1'), ('bcsel', a, one, 0)),
+        ])
+
+
+lower_bfloat_ops = [
+    (('bfmul', a, b), ('bfmul_mixed_intel', a, ('bf2f', b))),
+    (('bffma', a, b, c), ('bffma_mixed_intel', ('bf2f', a), b, c)),
+]
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-p', '--import-path', required=True)
+    parser.add_argument('output')
+    args = parser.parse_args()
+
+    sys.path.insert(0, args.import_path)
+    import nir_algebraic  # pylint: disable=import-error
+
+    with open(args.output, 'w', encoding='utf-8') as f:
+        f.write('#include "jay_private.h"')
+
+        f.write(nir_algebraic.AlgebraicPass(
+            "jay_nir_lower_algebraic", opt_bool + lower_algebraic,
+            [("unsigned", "verx10")]).render())
+        f.write(nir_algebraic.AlgebraicPass(
+            "jay_nir_lower_bool", lower_bool).render())
+        f.write(nir_algebraic.AlgebraicPass(
+            "jay_nir_lower_bfloat_math", lower_bfloat_ops).render())
+
+
+if __name__ == '__main__':
+    main()

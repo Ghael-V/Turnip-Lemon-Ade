@@ -1,0 +1,451 @@
+/*
+ * Copyright 2023 Advanced Micro Devices, Inc.
+ *
+ * SPDX-License-Identifier: MIT
+ */
+
+#include "nir_opt_varyings_test.h"
+
+namespace {
+
+class nir_opt_varyings_test_prop_const : public nir_opt_varyings_test {
+ public:
+   nir_intrinsic_instr *store, *store2 = NULL, *store3 = NULL;
+   unsigned bitsize;
+   unsigned pindex, cindex;
+   nir_def *input;
+   unsigned comp;
+   gl_varying_slot slot;
+   float val0;
+   float val1;
+
+   void setup(
+      mesa_shader_stage producer, mesa_shader_stage consumer,
+      gl_varying_slot in_slot, unsigned in_comp,
+      nir_alu_type ty, unsigned in_bitsize, float in_val0, float in_val1)
+   {
+      // Only float types have been used so far, and our checks use shader_contains_const_float().
+      ASSERT_EQ(nir_alu_type_get_base_type(ty), nir_type_float);
+      bitsize = in_bitsize;
+      comp = in_comp;
+      slot = in_slot;
+      val0 = in_val0;
+      val1 = in_val1;
+
+      create_shaders(producer, consumer);
+
+      store =
+         store_output(b1, slot, comp, ty,
+                      nir_imm_floatN_t(b1, val0, bitsize), 0, false);
+      if (is_per_vertex(b1, slot, false) ||
+          producer == MESA_SHADER_GEOMETRY) {
+         store2 = store_output(b1, slot, comp, ty,
+                               nir_imm_floatN_t(b1, val1, bitsize), 1, false);
+         store3 = store_output(b1, slot, comp, ty,
+                               nir_imm_floatN_t(b1, val1, bitsize), 2, false);
+      }
+
+      pindex = slot;
+      cindex = slot;
+      if (consumer == MESA_SHADER_FRAGMENT &&
+          (cindex == VARYING_SLOT_BFC0 || cindex == VARYING_SLOT_BFC1))
+         cindex -= VARYING_SLOT_BFC0 - VARYING_SLOT_COL0;
+
+      input = load_input(b2, (gl_varying_slot)cindex, comp, ty, 0, 0);
+      store_output(b2, VARYING_SLOT_VAR0, 0, ty, input, 0, false);
+      nir_def *input2 = load_input(b2, (gl_varying_slot)cindex, comp, ty, 1, 0);
+      store_output(b2, VARYING_SLOT_VAR1, 0, ty, input2, 0, false);
+
+      if (consumer == MESA_SHADER_FRAGMENT) {
+         /* Compaction moves COL1 to COL0. */
+         if (cindex == VARYING_SLOT_COL1) {
+            pindex--;
+            cindex--;
+         }
+
+         /* Compaction moves all these to VAR0. */
+         if (cindex == VARYING_SLOT_FOGC || cindex == VARYING_SLOT_PRIMITIVE_ID ||
+             cindex == VARYING_SLOT_VAR0_16BIT)
+            pindex = cindex = VARYING_SLOT_VAR0;
+      } else {
+         /* Compaction moves everything else to POS. */
+         if (!is_patch((gl_varying_slot)cindex)) {
+            pindex = cindex = VARYING_SLOT_POS;
+         }
+      }
+   }
+
+   void check_const_prop()
+   {
+      mesa_shader_stage consumer = b2->shader->info.stage;
+      if (nir_slot_is_sysval_output((gl_varying_slot)pindex, consumer)) {
+         ASSERT_EQ(opt_varyings(), (nir_progress_producer | nir_progress_consumer));
+         ASSERT_EQ(b1->shader->info.outputs_written, BITFIELD64_BIT(pindex));
+         ASSERT_TRUE(nir_intrinsic_io_semantics(store).no_varying);
+      } else {
+         ASSERT_EQ(opt_varyings(), (nir_progress_producer | nir_progress_consumer));
+         ASSERT_TRUE(b1->shader->info.outputs_written == 0 &&
+                     b1->shader->info.patch_outputs_written == 0 &&
+                     b1->shader->info.outputs_written_16bit == 0);
+         ASSERT_TRUE(!shader_contains_instr(b1, &store->instr));
+         ASSERT_TRUE(!store2 || !shader_contains_instr(b1, &store2->instr));
+         ASSERT_TRUE(!store3 || !shader_contains_instr(b1, &store3->instr));
+      }
+      ASSERT_TRUE(b2->shader->info.inputs_read == 0 &&
+                  b2->shader->info.patch_inputs_read == 0 &&
+                  b2->shader->info.inputs_read_16bit == 0);
+      ASSERT_TRUE(!shader_contains_def(b2, input));
+      ASSERT_TRUE(shader_contains_const_float(b2, val0, bitsize));
+   }
+
+   void check_const_prop_xfb()
+   {
+      mesa_shader_stage consumer = b2->shader->info.stage;
+
+      /* XFB-only outputs are moved to VARn. */
+      if (consumer == MESA_SHADER_FRAGMENT &&
+          slot == VARYING_SLOT_TEX0)
+         pindex = VARYING_SLOT_VAR0;
+
+      nir_io_xfb xfb;
+      memset(&xfb, 0, sizeof(xfb));
+      xfb.out[comp].num_components = 1;
+      nir_intrinsic_set_io_xfb(store, xfb);
+      if (store2)
+         nir_intrinsic_set_io_xfb(store2, xfb);
+      if (store3)
+         nir_intrinsic_set_io_xfb(store3, xfb);
+
+      ASSERT_EQ(opt_varyings(), (nir_progress_producer | nir_progress_consumer));
+      ASSERT_EQ(b1->shader->info.outputs_written, BITFIELD64_BIT(pindex));
+      ASSERT_TRUE(nir_intrinsic_io_semantics(store).no_varying);
+      ASSERT_TRUE(b2->shader->info.inputs_read == 0 &&
+                  b2->shader->info.patch_inputs_read == 0 &&
+                  b2->shader->info.inputs_read_16bit == 0);
+      ASSERT_TRUE(!shader_contains_def(b2, input));
+      ASSERT_TRUE(shader_contains_const_float(b2, val0, bitsize));
+   }
+
+   void check_const_prop_kept_2val(float val0, float val1)
+   {
+      ASSERT_EQ(opt_varyings(), 0);
+      if (pindex >= VARYING_SLOT_VAR0_16BIT) {
+         ASSERT_EQ(b1->shader->info.outputs_written_16bit,
+                   BITFIELD_BIT(pindex - VARYING_SLOT_VAR0_16BIT));
+         ASSERT_EQ(b2->shader->info.inputs_read_16bit,
+                   BITFIELD_BIT(cindex - VARYING_SLOT_VAR0_16BIT));
+      } else if (pindex >= VARYING_SLOT_PATCH0) {
+         ASSERT_EQ(b1->shader->info.patch_outputs_written, BITFIELD_BIT(pindex));
+         ASSERT_EQ(b2->shader->info.patch_inputs_read, BITFIELD_BIT(cindex));
+      } else {
+         ASSERT_EQ(b1->shader->info.outputs_written, BITFIELD64_BIT(pindex));
+         ASSERT_EQ(b2->shader->info.inputs_read, BITFIELD64_BIT(cindex));
+      }
+      ASSERT_TRUE(shader_contains_instr(b1, &store->instr));
+      ASSERT_TRUE(shader_contains_def(b2, input));
+      ASSERT_TRUE(!shader_contains_const_float(b2, val0, bitsize));
+      ASSERT_TRUE(!shader_contains_const_float(b2, val1, bitsize));
+   }
+};
+
+#define TEST_CONST_PROP(producer_stage, consumer_stage, slot, comp, type, bitsize, value) \
+TEST_F(nir_opt_varyings_test_prop_const, \
+       prop_##producer_stage##_##consumer_stage##_##slot##_##comp##_##type##bitsize) \
+{ \
+   setup(MESA_SHADER_##producer_stage, MESA_SHADER_##consumer_stage, \
+         VARYING_SLOT_##slot, comp, nir_type_##type##bitsize, bitsize, value, value); \
+   check_const_prop(); \
+}
+
+#define TEST_CONST_PROP_XFB(producer_stage, consumer_stage, slot, comp, type, bitsize, value) \
+TEST_F(nir_opt_varyings_test_prop_const, \
+       xfb_prop_##producer_stage##_##consumer_stage##_##slot##_##comp##_##type##bitsize) \
+{ \
+   setup(MESA_SHADER_##producer_stage, MESA_SHADER_##consumer_stage, \
+         VARYING_SLOT_##slot, comp, nir_type_##type##bitsize, bitsize, value, value); \
+   check_const_prop_xfb(); \
+}
+
+#define TEST_CONST_KEPT_2VAL(producer_stage, consumer_stage, slot, comp, type, bitsize, val0, val1, suffix) \
+TEST_F(nir_opt_varyings_test_prop_const, \
+       kept_##suffix##producer_stage##_##consumer_stage##_##slot##_##comp##_##type##bitsize) \
+{ \
+   setup(MESA_SHADER_##producer_stage, MESA_SHADER_##consumer_stage, \
+         VARYING_SLOT_##slot, comp, nir_type_##type##bitsize, bitsize, val0, val1); \
+   check_const_prop_kept_2val(val0, val1); \
+}
+
+#define TEST_CONST_KEPT(producer_stage, consumer_stage, slot, comp, type, bitsize, value) \
+   TEST_CONST_KEPT_2VAL(producer_stage, consumer_stage, slot, comp, type, bitsize, value, value, )
+
+#define TEST_CONST_KEPT_DIFF(producer_stage, consumer_stage, slot, comp, type, bitsize, value) \
+   TEST_CONST_KEPT_2VAL(producer_stage, consumer_stage, slot, comp, type, bitsize, value, 0, diff_)
+
+TEST_CONST_PROP(VERTEX, TESS_CTRL, POS, 0, float, 32, 314)
+TEST_CONST_PROP(VERTEX, TESS_CTRL, COL0, 0, float, 32, 314)
+TEST_CONST_PROP(VERTEX, TESS_CTRL, COL1, 0, float, 32, 314)
+TEST_CONST_PROP(VERTEX, TESS_CTRL, BFC0, 0, float, 32, 314)
+TEST_CONST_PROP(VERTEX, TESS_CTRL, BFC1, 0, float, 32, 314)
+TEST_CONST_PROP(VERTEX, TESS_CTRL, FOGC, 0, float, 32, 314)
+TEST_CONST_PROP(VERTEX, TESS_CTRL, TEX0, 0, float, 32, 314)
+TEST_CONST_PROP(VERTEX, TESS_CTRL, PSIZ, 0, float, 32, 314)
+TEST_CONST_PROP(VERTEX, TESS_CTRL, CLIP_VERTEX, 0, float, 32, 314)
+TEST_CONST_PROP(VERTEX, TESS_CTRL, CLIP_DIST0, 0, float, 32, 314)
+TEST_CONST_PROP(VERTEX, TESS_CTRL, CLIP_DIST1, 0, float, 32, 314)
+TEST_CONST_PROP(VERTEX, TESS_CTRL, LAYER, 0, float, 32, 314)
+TEST_CONST_PROP(VERTEX, TESS_CTRL, VIEWPORT, 0, float, 32, 314)
+TEST_CONST_PROP(VERTEX, TESS_CTRL, VAR0, 0, float, 32, 314)
+TEST_CONST_PROP(VERTEX, TESS_CTRL, VAR0, 0, float, 16, 314)
+TEST_CONST_PROP(VERTEX, TESS_CTRL, VAR0_16BIT, 0, float, 16, 314)
+
+TEST_CONST_PROP(VERTEX, TESS_EVAL, POS, 0, float, 32, 314)
+TEST_CONST_PROP(VERTEX, TESS_EVAL, COL0, 0, float, 32, 314)
+TEST_CONST_PROP(VERTEX, TESS_EVAL, COL1, 0, float, 32, 314)
+TEST_CONST_PROP(VERTEX, TESS_EVAL, BFC0, 0, float, 32, 314)
+TEST_CONST_PROP(VERTEX, TESS_EVAL, BFC1, 0, float, 32, 314)
+TEST_CONST_PROP(VERTEX, TESS_EVAL, FOGC, 0, float, 32, 314)
+TEST_CONST_PROP(VERTEX, TESS_EVAL, TEX0, 0, float, 32, 314)
+TEST_CONST_PROP(VERTEX, TESS_EVAL, PSIZ, 0, float, 32, 314)
+TEST_CONST_PROP(VERTEX, TESS_EVAL, CLIP_VERTEX, 0, float, 32, 314)
+TEST_CONST_PROP(VERTEX, TESS_EVAL, CLIP_DIST0, 0, float, 32, 314)
+TEST_CONST_PROP(VERTEX, TESS_EVAL, CLIP_DIST1, 0, float, 32, 314)
+TEST_CONST_PROP(VERTEX, TESS_EVAL, LAYER, 0, float, 32, 314)
+TEST_CONST_PROP(VERTEX, TESS_EVAL, VIEWPORT, 0, float, 32, 314)
+TEST_CONST_PROP(VERTEX, TESS_EVAL, VAR0, 0, float, 32, 314)
+TEST_CONST_PROP(VERTEX, TESS_EVAL, VAR0, 0, float, 16, 314)
+TEST_CONST_PROP(VERTEX, TESS_EVAL, VAR0_16BIT, 0, float, 16, 314)
+
+TEST_CONST_PROP(TESS_CTRL, TESS_EVAL, POS, 0, float, 32, 314)
+TEST_CONST_PROP(TESS_CTRL, TESS_EVAL, COL0, 0, float, 32, 314)
+TEST_CONST_PROP(TESS_CTRL, TESS_EVAL, COL1, 0, float, 32, 314)
+TEST_CONST_PROP(TESS_CTRL, TESS_EVAL, BFC0, 0, float, 32, 314)
+TEST_CONST_PROP(TESS_CTRL, TESS_EVAL, BFC1, 0, float, 32, 314)
+TEST_CONST_PROP(TESS_CTRL, TESS_EVAL, FOGC, 0, float, 32, 314)
+TEST_CONST_PROP(TESS_CTRL, TESS_EVAL, TEX0, 0, float, 32, 314)
+TEST_CONST_PROP(TESS_CTRL, TESS_EVAL, PSIZ, 0, float, 32, 314)
+TEST_CONST_PROP(TESS_CTRL, TESS_EVAL, CLIP_VERTEX, 0, float, 32, 314)
+TEST_CONST_PROP(TESS_CTRL, TESS_EVAL, CLIP_DIST0, 0, float, 32, 314)
+TEST_CONST_PROP(TESS_CTRL, TESS_EVAL, CLIP_DIST1, 0, float, 32, 314)
+TEST_CONST_PROP(TESS_CTRL, TESS_EVAL, LAYER, 0, float, 32, 314)
+TEST_CONST_PROP(TESS_CTRL, TESS_EVAL, VIEWPORT, 0, float, 32, 314)
+TEST_CONST_PROP(TESS_CTRL, TESS_EVAL, VAR0, 0, float, 32, 314)
+TEST_CONST_PROP(TESS_CTRL, TESS_EVAL, VAR0, 0, float, 16, 314)
+TEST_CONST_PROP(TESS_CTRL, TESS_EVAL, VAR0_16BIT, 0, float, 16, 314)
+TEST_CONST_PROP(TESS_CTRL, TESS_EVAL, TESS_LEVEL_INNER, 0, float, 32, 314)
+TEST_CONST_PROP(TESS_CTRL, TESS_EVAL, TESS_LEVEL_OUTER, 0, float, 32, 314)
+TEST_CONST_PROP(TESS_CTRL, TESS_EVAL, PATCH0, 0, float, 32, 314)
+TEST_CONST_PROP(TESS_CTRL, TESS_EVAL, PATCH0, 0, float, 16, 314)
+
+TEST_CONST_KEPT_DIFF(TESS_CTRL, TESS_EVAL, POS, 0, float, 32, 314)
+TEST_CONST_KEPT_DIFF(TESS_CTRL, TESS_EVAL, COL0, 0, float, 32, 314)
+TEST_CONST_KEPT_DIFF(TESS_CTRL, TESS_EVAL, COL1, 0, float, 32, 314)
+TEST_CONST_KEPT_DIFF(TESS_CTRL, TESS_EVAL, BFC0, 0, float, 32, 314)
+TEST_CONST_KEPT_DIFF(TESS_CTRL, TESS_EVAL, BFC1, 0, float, 32, 314)
+TEST_CONST_KEPT_DIFF(TESS_CTRL, TESS_EVAL, FOGC, 0, float, 32, 314)
+TEST_CONST_KEPT_DIFF(TESS_CTRL, TESS_EVAL, TEX0, 0, float, 32, 314)
+TEST_CONST_KEPT_DIFF(TESS_CTRL, TESS_EVAL, PSIZ, 0, float, 32, 314)
+TEST_CONST_KEPT_DIFF(TESS_CTRL, TESS_EVAL, CLIP_VERTEX, 0, float, 32, 314)
+TEST_CONST_KEPT_DIFF(TESS_CTRL, TESS_EVAL, CLIP_DIST0, 0, float, 32, 314)
+TEST_CONST_KEPT_DIFF(TESS_CTRL, TESS_EVAL, CLIP_DIST1, 0, float, 32, 314)
+TEST_CONST_KEPT_DIFF(TESS_CTRL, TESS_EVAL, LAYER, 0, float, 32, 314)
+TEST_CONST_KEPT_DIFF(TESS_CTRL, TESS_EVAL, VIEWPORT, 0, float, 32, 314)
+TEST_CONST_KEPT_DIFF(TESS_CTRL, TESS_EVAL, VAR0, 0, float, 32, 314)
+TEST_CONST_KEPT_DIFF(TESS_CTRL, TESS_EVAL, VAR0, 0, float, 16, 314)
+TEST_CONST_KEPT_DIFF(TESS_CTRL, TESS_EVAL, VAR0_16BIT, 0, float, 16, 314)
+
+TEST_CONST_PROP(VERTEX, GEOMETRY, POS, 0, float, 32, 314)
+TEST_CONST_PROP(VERTEX, GEOMETRY, COL0, 0, float, 32, 314)
+TEST_CONST_PROP(VERTEX, GEOMETRY, COL1, 0, float, 32, 314)
+TEST_CONST_PROP(VERTEX, GEOMETRY, BFC0, 0, float, 32, 314)
+TEST_CONST_PROP(VERTEX, GEOMETRY, BFC1, 0, float, 32, 314)
+TEST_CONST_PROP(VERTEX, GEOMETRY, FOGC, 0, float, 32, 314)
+TEST_CONST_PROP(VERTEX, GEOMETRY, TEX0, 0, float, 32, 314)
+TEST_CONST_PROP(VERTEX, GEOMETRY, PSIZ, 0, float, 32, 314)
+TEST_CONST_PROP(VERTEX, GEOMETRY, CLIP_VERTEX, 0, float, 32, 314)
+TEST_CONST_PROP(VERTEX, GEOMETRY, CLIP_DIST0, 0, float, 32, 314)
+TEST_CONST_PROP(VERTEX, GEOMETRY, CLIP_DIST1, 0, float, 32, 314)
+TEST_CONST_PROP(VERTEX, GEOMETRY, LAYER, 0, float, 32, 314)
+TEST_CONST_PROP(VERTEX, GEOMETRY, VIEWPORT, 0, float, 32, 314)
+TEST_CONST_PROP(VERTEX, GEOMETRY, VAR0, 0, float, 32, 314)
+TEST_CONST_PROP(VERTEX, GEOMETRY, VAR0, 0, float, 16, 314)
+TEST_CONST_PROP(VERTEX, GEOMETRY, VAR0_16BIT, 0, float, 16, 314)
+
+TEST_CONST_PROP(TESS_EVAL, GEOMETRY, POS, 0, float, 32, 314)
+TEST_CONST_PROP(TESS_EVAL, GEOMETRY, COL0, 0, float, 32, 314)
+TEST_CONST_PROP(TESS_EVAL, GEOMETRY, COL1, 0, float, 32, 314)
+TEST_CONST_PROP(TESS_EVAL, GEOMETRY, BFC0, 0, float, 32, 314)
+TEST_CONST_PROP(TESS_EVAL, GEOMETRY, BFC1, 0, float, 32, 314)
+TEST_CONST_PROP(TESS_EVAL, GEOMETRY, FOGC, 0, float, 32, 314)
+TEST_CONST_PROP(TESS_EVAL, GEOMETRY, TEX0, 0, float, 32, 314)
+TEST_CONST_PROP(TESS_EVAL, GEOMETRY, PSIZ, 0, float, 32, 314)
+TEST_CONST_PROP(TESS_EVAL, GEOMETRY, CLIP_VERTEX, 0, float, 32, 314)
+TEST_CONST_PROP(TESS_EVAL, GEOMETRY, CLIP_DIST0, 0, float, 32, 314)
+TEST_CONST_PROP(TESS_EVAL, GEOMETRY, CLIP_DIST1, 0, float, 32, 314)
+TEST_CONST_PROP(TESS_EVAL, GEOMETRY, LAYER, 0, float, 32, 314)
+TEST_CONST_PROP(TESS_EVAL, GEOMETRY, VIEWPORT, 0, float, 32, 314)
+TEST_CONST_PROP(TESS_EVAL, GEOMETRY, VAR0, 0, float, 32, 314)
+TEST_CONST_PROP(TESS_EVAL, GEOMETRY, VAR0, 0, float, 16, 314)
+TEST_CONST_PROP(TESS_EVAL, GEOMETRY, VAR0_16BIT, 0, float, 16, 314)
+
+TEST_CONST_PROP(VERTEX, FRAGMENT, COL0, 0, float, 32, 0.14)
+TEST_CONST_PROP(VERTEX, FRAGMENT, COL1, 0, float, 32, 0.14)
+TEST_CONST_PROP(VERTEX, FRAGMENT, BFC0, 0, float, 32, 0.14)
+TEST_CONST_PROP(VERTEX, FRAGMENT, BFC1, 0, float, 32, 0.14)
+TEST_CONST_PROP(VERTEX, FRAGMENT, TEX0, 2, float, 32, 0)
+TEST_CONST_PROP(VERTEX, FRAGMENT, TEX0, 3, float, 32, 1)
+
+TEST_CONST_KEPT(VERTEX, FRAGMENT, COL0, 0, float, 32, 314)
+TEST_CONST_KEPT(VERTEX, FRAGMENT, COL1, 0, float, 32, 314)
+TEST_CONST_KEPT(VERTEX, FRAGMENT, BFC0, 0, float, 32, 314)
+TEST_CONST_KEPT(VERTEX, FRAGMENT, BFC1, 0, float, 32, 314)
+TEST_CONST_PROP(VERTEX, FRAGMENT, FOGC, 0, float, 32, 314)
+TEST_CONST_KEPT(VERTEX, FRAGMENT, TEX0, 0, float, 32, 314)
+TEST_CONST_KEPT(VERTEX, FRAGMENT, PSIZ, 0, float, 32, 314)
+TEST_CONST_KEPT(VERTEX, FRAGMENT, CLIP_VERTEX, 0, float, 32, 314)
+TEST_CONST_PROP(VERTEX, FRAGMENT, CLIP_DIST0, 0, float, 32, 314)
+TEST_CONST_PROP(VERTEX, FRAGMENT, CLIP_DIST1, 0, float, 32, 314)
+TEST_CONST_PROP(VERTEX, FRAGMENT, CULL_DIST0, 0, float, 32, 314)
+TEST_CONST_PROP(VERTEX, FRAGMENT, CULL_DIST1, 0, float, 32, 314)
+TEST_CONST_PROP(VERTEX, FRAGMENT, LAYER, 0, float, 32, 314)
+TEST_CONST_PROP(VERTEX, FRAGMENT, VIEWPORT, 0, float, 32, 314)
+TEST_CONST_PROP(VERTEX, FRAGMENT, VAR0, 0, float, 32, 314)
+TEST_CONST_PROP(VERTEX, FRAGMENT, VAR0, 0, float, 16, 314)
+TEST_CONST_PROP(VERTEX, FRAGMENT, VAR0_16BIT, 0, float, 16, 314)
+
+TEST_CONST_PROP_XFB(VERTEX, FRAGMENT, COL0, 0, float, 32, 0.14)
+TEST_CONST_PROP_XFB(VERTEX, FRAGMENT, COL1, 0, float, 32, 0.14)
+TEST_CONST_PROP_XFB(VERTEX, FRAGMENT, BFC0, 0, float, 32, 0.14)
+TEST_CONST_PROP_XFB(VERTEX, FRAGMENT, BFC1, 0, float, 32, 0.14)
+TEST_CONST_PROP_XFB(VERTEX, FRAGMENT, TEX0, 2, float, 32, 0)
+TEST_CONST_PROP_XFB(VERTEX, FRAGMENT, TEX0, 3, float, 32, 1)
+
+TEST_CONST_PROP_XFB(VERTEX, FRAGMENT, FOGC, 0, float, 32, 314)
+TEST_CONST_PROP_XFB(VERTEX, FRAGMENT, CLIP_DIST0, 0, float, 32, 314)
+TEST_CONST_PROP_XFB(VERTEX, FRAGMENT, CLIP_DIST1, 0, float, 32, 314)
+TEST_CONST_PROP_XFB(VERTEX, FRAGMENT, CULL_DIST0, 0, float, 32, 314)
+TEST_CONST_PROP_XFB(VERTEX, FRAGMENT, CULL_DIST1, 0, float, 32, 314)
+TEST_CONST_PROP_XFB(VERTEX, FRAGMENT, LAYER, 0, float, 32, 314)
+TEST_CONST_PROP_XFB(VERTEX, FRAGMENT, VIEWPORT, 0, float, 32, 314)
+TEST_CONST_PROP_XFB(VERTEX, FRAGMENT, VAR0, 0, float, 32, 314)
+TEST_CONST_PROP_XFB(VERTEX, FRAGMENT, VAR0, 0, float, 16, 314)
+TEST_CONST_PROP_XFB(VERTEX, FRAGMENT, VAR0_16BIT, 0, float, 16, 314)
+
+TEST_CONST_PROP(TESS_EVAL, FRAGMENT, COL0, 0, float, 32, 0.14)
+TEST_CONST_PROP(TESS_EVAL, FRAGMENT, COL1, 0, float, 32, 0.14)
+TEST_CONST_PROP(TESS_EVAL, FRAGMENT, BFC0, 0, float, 32, 0.14)
+TEST_CONST_PROP(TESS_EVAL, FRAGMENT, BFC1, 0, float, 32, 0.14)
+TEST_CONST_PROP(TESS_EVAL, FRAGMENT, TEX0, 2, float, 32, 0)
+TEST_CONST_PROP(TESS_EVAL, FRAGMENT, TEX0, 3, float, 32, 1)
+
+TEST_CONST_KEPT(TESS_EVAL, FRAGMENT, COL0, 0, float, 32, 314)
+TEST_CONST_KEPT(TESS_EVAL, FRAGMENT, COL1, 0, float, 32, 314)
+TEST_CONST_KEPT(TESS_EVAL, FRAGMENT, BFC0, 0, float, 32, 314)
+TEST_CONST_KEPT(TESS_EVAL, FRAGMENT, BFC1, 0, float, 32, 314)
+TEST_CONST_PROP(TESS_EVAL, FRAGMENT, FOGC, 0, float, 32, 314)
+TEST_CONST_KEPT(TESS_EVAL, FRAGMENT, TEX0, 0, float, 32, 314)
+TEST_CONST_KEPT(TESS_EVAL, FRAGMENT, PSIZ, 0, float, 32, 314)
+TEST_CONST_KEPT(TESS_EVAL, FRAGMENT, CLIP_VERTEX, 0, float, 32, 314)
+TEST_CONST_PROP(TESS_EVAL, FRAGMENT, CLIP_DIST0, 0, float, 32, 314)
+TEST_CONST_PROP(TESS_EVAL, FRAGMENT, CLIP_DIST1, 0, float, 32, 314)
+TEST_CONST_PROP(TESS_EVAL, FRAGMENT, CULL_DIST0, 0, float, 32, 314)
+TEST_CONST_PROP(TESS_EVAL, FRAGMENT, CULL_DIST1, 0, float, 32, 314)
+TEST_CONST_PROP(TESS_EVAL, FRAGMENT, LAYER, 0, float, 32, 314)
+TEST_CONST_PROP(TESS_EVAL, FRAGMENT, VIEWPORT, 0, float, 32, 314)
+TEST_CONST_PROP(TESS_EVAL, FRAGMENT, VAR0, 0, float, 32, 314)
+TEST_CONST_PROP(TESS_EVAL, FRAGMENT, VAR0, 0, float, 16, 314)
+TEST_CONST_PROP(TESS_EVAL, FRAGMENT, VAR0_16BIT, 0, float, 16, 314)
+
+TEST_CONST_PROP_XFB(TESS_EVAL, FRAGMENT, COL0, 0, float, 32, 0.14)
+TEST_CONST_PROP_XFB(TESS_EVAL, FRAGMENT, COL1, 0, float, 32, 0.14)
+TEST_CONST_PROP_XFB(TESS_EVAL, FRAGMENT, BFC0, 0, float, 32, 0.14)
+TEST_CONST_PROP_XFB(TESS_EVAL, FRAGMENT, BFC1, 0, float, 32, 0.14)
+TEST_CONST_PROP_XFB(TESS_EVAL, FRAGMENT, TEX0, 2, float, 32, 0)
+TEST_CONST_PROP_XFB(TESS_EVAL, FRAGMENT, TEX0, 3, float, 32, 1)
+
+TEST_CONST_PROP_XFB(TESS_EVAL, FRAGMENT, FOGC, 0, float, 32, 314)
+TEST_CONST_PROP_XFB(TESS_EVAL, FRAGMENT, CLIP_DIST0, 0, float, 32, 314)
+TEST_CONST_PROP_XFB(TESS_EVAL, FRAGMENT, CLIP_DIST1, 0, float, 32, 314)
+TEST_CONST_PROP_XFB(TESS_EVAL, FRAGMENT, CULL_DIST0, 0, float, 32, 314)
+TEST_CONST_PROP_XFB(TESS_EVAL, FRAGMENT, CULL_DIST1, 0, float, 32, 314)
+TEST_CONST_PROP_XFB(TESS_EVAL, FRAGMENT, LAYER, 0, float, 32, 314)
+TEST_CONST_PROP_XFB(TESS_EVAL, FRAGMENT, VIEWPORT, 0, float, 32, 314)
+TEST_CONST_PROP_XFB(TESS_EVAL, FRAGMENT, VAR0, 0, float, 32, 314)
+TEST_CONST_PROP_XFB(TESS_EVAL, FRAGMENT, VAR0, 0, float, 16, 314)
+TEST_CONST_PROP_XFB(TESS_EVAL, FRAGMENT, VAR0_16BIT, 0, float, 16, 314)
+
+TEST_CONST_PROP(GEOMETRY, FRAGMENT, COL0, 0, float, 32, 0.14)
+TEST_CONST_PROP(GEOMETRY, FRAGMENT, COL1, 0, float, 32, 0.14)
+TEST_CONST_PROP(GEOMETRY, FRAGMENT, BFC0, 0, float, 32, 0.14)
+TEST_CONST_PROP(GEOMETRY, FRAGMENT, BFC1, 0, float, 32, 0.14)
+TEST_CONST_PROP(GEOMETRY, FRAGMENT, TEX0, 2, float, 32, 0)
+TEST_CONST_PROP(GEOMETRY, FRAGMENT, TEX0, 3, float, 32, 1)
+
+TEST_CONST_KEPT(GEOMETRY, FRAGMENT, COL0, 0, float, 32, 314)
+TEST_CONST_KEPT(GEOMETRY, FRAGMENT, COL1, 0, float, 32, 314)
+TEST_CONST_KEPT(GEOMETRY, FRAGMENT, BFC0, 0, float, 32, 314)
+TEST_CONST_KEPT(GEOMETRY, FRAGMENT, BFC1, 0, float, 32, 314)
+TEST_CONST_PROP(GEOMETRY, FRAGMENT, FOGC, 0, float, 32, 314)
+TEST_CONST_KEPT(GEOMETRY, FRAGMENT, TEX0, 0, float, 32, 314)
+TEST_CONST_KEPT(GEOMETRY, FRAGMENT, PSIZ, 0, float, 32, 314)
+TEST_CONST_KEPT(GEOMETRY, FRAGMENT, CLIP_VERTEX, 0, float, 32, 314)
+TEST_CONST_PROP(GEOMETRY, FRAGMENT, CLIP_DIST0, 0, float, 32, 314)
+TEST_CONST_PROP(GEOMETRY, FRAGMENT, CLIP_DIST1, 0, float, 32, 314)
+TEST_CONST_PROP(GEOMETRY, FRAGMENT, CULL_DIST0, 0, float, 32, 314)
+TEST_CONST_PROP(GEOMETRY, FRAGMENT, CULL_DIST1, 0, float, 32, 314)
+TEST_CONST_PROP(GEOMETRY, FRAGMENT, PRIMITIVE_ID, 0, float, 32, 314)
+TEST_CONST_PROP(GEOMETRY, FRAGMENT, LAYER, 0, float, 32, 314)
+TEST_CONST_PROP(GEOMETRY, FRAGMENT, VIEWPORT, 0, float, 32, 314)
+TEST_CONST_PROP(GEOMETRY, FRAGMENT, VAR0, 0, float, 32, 314)
+TEST_CONST_PROP(GEOMETRY, FRAGMENT, VAR0, 0, float, 16, 314)
+TEST_CONST_PROP(GEOMETRY, FRAGMENT, VAR0_16BIT, 0, float, 16, 314)
+
+TEST_CONST_PROP_XFB(GEOMETRY, FRAGMENT, COL0, 0, float, 32, 0.14)
+TEST_CONST_PROP_XFB(GEOMETRY, FRAGMENT, COL1, 0, float, 32, 0.14)
+TEST_CONST_PROP_XFB(GEOMETRY, FRAGMENT, BFC0, 0, float, 32, 0.14)
+TEST_CONST_PROP_XFB(GEOMETRY, FRAGMENT, BFC1, 0, float, 32, 0.14)
+TEST_CONST_PROP_XFB(GEOMETRY, FRAGMENT, TEX0, 2, float, 32, 0)
+TEST_CONST_PROP_XFB(GEOMETRY, FRAGMENT, TEX0, 3, float, 32, 1)
+
+TEST_CONST_PROP_XFB(GEOMETRY, FRAGMENT, FOGC, 0, float, 32, 314)
+TEST_CONST_PROP_XFB(GEOMETRY, FRAGMENT, CLIP_DIST0, 0, float, 32, 314)
+TEST_CONST_PROP_XFB(GEOMETRY, FRAGMENT, CLIP_DIST1, 0, float, 32, 314)
+TEST_CONST_PROP_XFB(GEOMETRY, FRAGMENT, CULL_DIST0, 0, float, 32, 314)
+TEST_CONST_PROP_XFB(GEOMETRY, FRAGMENT, CULL_DIST1, 0, float, 32, 314)
+TEST_CONST_PROP_XFB(GEOMETRY, FRAGMENT, PRIMITIVE_ID, 0, float, 32, 314)
+TEST_CONST_PROP_XFB(GEOMETRY, FRAGMENT, LAYER, 0, float, 32, 314)
+TEST_CONST_PROP_XFB(GEOMETRY, FRAGMENT, VIEWPORT, 0, float, 32, 314)
+TEST_CONST_PROP_XFB(GEOMETRY, FRAGMENT, VAR0, 0, float, 32, 314)
+TEST_CONST_PROP_XFB(GEOMETRY, FRAGMENT, VAR0, 0, float, 16, 314)
+TEST_CONST_PROP_XFB(GEOMETRY, FRAGMENT, VAR0_16BIT, 0, float, 16, 314)
+
+TEST_CONST_KEPT_DIFF(GEOMETRY, FRAGMENT, COL0, 0, float, 32, 0.14)
+TEST_CONST_KEPT_DIFF(GEOMETRY, FRAGMENT, COL1, 0, float, 32, 0.14)
+TEST_CONST_KEPT_DIFF(GEOMETRY, FRAGMENT, BFC0, 0, float, 32, 0.14)
+TEST_CONST_KEPT_DIFF(GEOMETRY, FRAGMENT, BFC1, 0, float, 32, 0.14)
+TEST_CONST_KEPT_DIFF(GEOMETRY, FRAGMENT, FOGC, 0, float, 32, 314)
+TEST_CONST_KEPT_DIFF(GEOMETRY, FRAGMENT, TEX0, 0, float, 32, 314)
+TEST_CONST_KEPT_DIFF(GEOMETRY, FRAGMENT, PSIZ, 0, float, 32, 314)
+TEST_CONST_KEPT_DIFF(GEOMETRY, FRAGMENT, CLIP_VERTEX, 0, float, 32, 314)
+TEST_CONST_KEPT_DIFF(GEOMETRY, FRAGMENT, CLIP_DIST0, 0, float, 32, 314)
+TEST_CONST_KEPT_DIFF(GEOMETRY, FRAGMENT, CLIP_DIST1, 0, float, 32, 314)
+TEST_CONST_KEPT_DIFF(GEOMETRY, FRAGMENT, CULL_DIST0, 0, float, 32, 314)
+TEST_CONST_KEPT_DIFF(GEOMETRY, FRAGMENT, CULL_DIST1, 0, float, 32, 314)
+TEST_CONST_KEPT_DIFF(GEOMETRY, FRAGMENT, PRIMITIVE_ID, 0, float, 32, 314)
+TEST_CONST_KEPT_DIFF(GEOMETRY, FRAGMENT, LAYER, 0, float, 32, 314)
+TEST_CONST_KEPT_DIFF(GEOMETRY, FRAGMENT, VIEWPORT, 0, float, 32, 314)
+TEST_CONST_KEPT_DIFF(GEOMETRY, FRAGMENT, VAR0, 0, float, 32, 314)
+TEST_CONST_KEPT_DIFF(GEOMETRY, FRAGMENT, VAR0, 0, float, 16, 314)
+TEST_CONST_KEPT_DIFF(GEOMETRY, FRAGMENT, VAR0_16BIT, 0, float, 16, 314)
+
+TEST_CONST_KEPT(MESH, FRAGMENT, PSIZ, 0, float, 32, 314)
+TEST_CONST_PROP(MESH, FRAGMENT, CLIP_DIST0, 0, float, 32, 314)
+TEST_CONST_PROP(MESH, FRAGMENT, CLIP_DIST1, 0, float, 32, 314)
+TEST_CONST_PROP(MESH, FRAGMENT, CULL_DIST0, 0, float, 32, 314)
+TEST_CONST_PROP(MESH, FRAGMENT, CULL_DIST1, 0, float, 32, 314)
+TEST_CONST_PROP(MESH, FRAGMENT, LAYER, 0, float, 32, 314)
+TEST_CONST_PROP(MESH, FRAGMENT, VIEWPORT, 0, float, 32, 314)
+TEST_CONST_PROP(MESH, FRAGMENT, VAR0, 0, float, 32, 314)
+TEST_CONST_PROP(MESH, FRAGMENT, VAR0, 0, float, 16, 314)
+TEST_CONST_PROP(MESH, FRAGMENT, VAR0_16BIT, 0, float, 16, 314)
+
+}

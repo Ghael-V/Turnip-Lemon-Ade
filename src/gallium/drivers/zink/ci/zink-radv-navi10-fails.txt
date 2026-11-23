@@ -1,0 +1,31 @@
+glx@glx-multi-window-single-context,Fail
+
+# https://gitlab.freedesktop.org/mesa/mesa/-/issues/12495
+spec@arb_framebuffer_object@execution@msaa-alpha-to-coverage_alpha-to-one,Fail
+spec@arb_framebuffer_object@execution@msaa-alpha-to-coverage_alpha-to-one_write-z,Fail
+
+
+spec@arb_query_buffer_object@qbo@query-GL_GEOMETRY_SHADER_INVOCATIONS-ASYNC-GL_INT,Fail
+spec@arb_query_buffer_object@qbo@query-GL_GEOMETRY_SHADER_INVOCATIONS-ASYNC-GL_UNSIGNED_INT,Fail
+spec@arb_query_buffer_object@qbo@query-GL_GEOMETRY_SHADER_INVOCATIONS-ASYNC-GL_UNSIGNED_INT64_ARB,Fail
+spec@arb_query_buffer_object@qbo@query-GL_GEOMETRY_SHADER_INVOCATIONS-SYNC-GL_INT,Fail
+spec@arb_query_buffer_object@qbo@query-GL_GEOMETRY_SHADER_INVOCATIONS-SYNC-GL_UNSIGNED_INT,Fail
+spec@arb_query_buffer_object@qbo@query-GL_GEOMETRY_SHADER_INVOCATIONS-SYNC-GL_UNSIGNED_INT64_ARB,Fail
+
+# CL issues
+api@clgetdeviceinfo,Fail
+api@clgetextensionfunctionaddressforplatform,Fail
+api@cllinkprogram,Fail
+program@execute@builtin@builtin-float-nextafter-1.0.generated,Fail
+program@execute@builtin@builtin-float-nextafter-1.0.generated@nextafter float1,Fail
+program@execute@builtin@builtin-float-nextafter-1.0.generated@nextafter float16,Fail
+program@execute@builtin@builtin-float-nextafter-1.0.generated@nextafter float2,Fail
+program@execute@builtin@builtin-float-nextafter-1.0.generated@nextafter float4,Fail
+program@execute@builtin@builtin-float-nextafter-1.0.generated@nextafter float8,Fail
+program@execute@vector-conversion,Fail
+
+# uprev Piglit in Mesa
+spec@!opengl 1.0@gl-1.0-front-back-interleave,Fail
+spec@!opengl 1.0@gl-1.0-read-front-after-swap,Fail
+spec@!opengl 1.5@gl-1.5-gen-buffers-unique,Crash
+

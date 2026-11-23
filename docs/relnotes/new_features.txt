@@ -1,0 +1,40 @@
+VK_EXT_vertex_attribute_robustness on panvk
+VK_EXT_host_image_copy on RADV/GFX9 with RADV_EXPERIMENTAL=hic
+VK_KHR_internally_synchronized_queues on pvr
+VK_KHR_maintenance6 on v3dv
+VK_EXT_host_image_copy on v3dv
+VK_KHR_extended_flags on panvk
+GL_EXT_semaphore on asahi
+GL_EXT_semaphore_fd on asahi
+cl_khr_semaphore on asahi
+cl_khr_external_semaphore on asahi
+cl_khr_external_semaphore_sync_fd on asahi
+VK_KHR_maintenance7 on v3dv
+VK_KHR_maintenance8 on v3dv
+VK_KHR_shader_constant_data on HK
+GL, GLES, EGL, and GLX call tracing with apitrace, MESA_APITRACE=1 in builds with -Dapitrace=true
+GL, GLES, EGL, GLX, and WGL call tracing with apitrace, MESA_APITRACE=1 in builds with -Dapitrace=true
+VK_{KHR,EXT}_load_store_op_none on pvr
+GL_NV_alpha_to_coverage_dither_control on all r600 devices
+VK_{ARM,EXT}_rasterization_order_attachment_access on v3dv
+VK_KHR_maintenance12 on RADV, anv
+cl_khr_external_memory on iris, radeonsi, zink
+cl_khr_external_memory_dma_buf on iris, radeonsi, zink
+cl_khr_external_memory_opaque_fd on iris, radeonsi, zink
+cl_arm_memory_import_dma_buf on rusticl
+VK_EXT_vertex_address_binding_unrestricted on RADV
+VK_EXT_depth_clip_control on dzn
+GL_OES_sample_shading on v3d
+GL_OES_sample_variables on v3d
+GL_OES_shader_multisample_interpolation on v3d
+GL_OES_texture_buffer on v3d
+GL_ARB_texture_buffer_object_rgb32 on v3d
+VK_KHR_zero_initialize_workgroup_memory on pvr
+VK_KHR_vulkan_memory_model on pvr
+VK_KHR_shader_untyped_pointers on pvr
+VK_EXT_host_query_reset on dzn
+VK_KHR_shader_subgroup_extended_types on dzn
+VK_EXT_private_data on dzn
+VK_KHR_performance_query on nvk
+VK_KHR_external_fence on dzn
+VK_KHR_external_fence_capabilities on dzn

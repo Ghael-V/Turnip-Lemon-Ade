@@ -1,0 +1,56 @@
+# Please include a comment with the log message and a testcase triggering each
+# VUID at the bottom of the file.
+khronos_validation.message_id_filter = VUID-VkPhysicalDeviceProperties2-pNext-pNext,VUID-VkDeviceCreateInfo-pNext-pNext,VUID-RuntimeSpirv-Location-06272,VUID-RuntimeSpirv-OpEntryPoint-08743,VUID-StandaloneSpirv-OpEntryPoint-08721,08911,08879,VUID-vkDestroyDevice-device-05137,VUID-vkQueueSubmit-pCommandBuffers-00065,VUID-VkShaderCreateInfoEXT-pCode-08737,10909,VUID-VkDeviceAddress-size-11364,VUID-VkStridedDeviceAddressRangeKHR-address-11365,VUID-vkDestroyShaderEXT-shader-08482,VUID-VkMemoryGetFdInfoKHR-handleType-00671,VUID-vkCmdBeginQuery-queryPool-01922,VUID-VkSparseMemoryBind-resourceOffset-09491,VUID-vkDestroyImage-image-01000
+khronos_validation.report_flags = error
+khronos_validation.debug_action = VK_DBG_LAYER_ACTION_LOG_MSG,VK_DBG_LAYER_ACTION_BREAK
+VK_LAYER_ENABLES=VK_VALIDATION_FEATURE_ENABLE_DEBUG_PRINTF_EXT
+khronos_validation.printf_buffer_size = 40960
+khronos_validation.printf_to_stdout = true
+khronos_validation.log_filename = stdout
+
+# VUID-VkPhysicalDeviceProperties2-pNext-pNext
+# VUID-VkDeviceCreateInfo-pNext-pNext
+# never error due to unrecognized extensions
+
+
+# VUID-VkDeviceAddress-size-11364,VUID-VkStridedDeviceAddressRangeKHR-address-11365
+# needs vk extension
+
+# spec@ext_packed_float@multisample-formats 2 gl_ext_packed_float
+#
+# Validation Error: [ VUID-vkDestroyShaderEXT-shader-08482 ] | MessageID = 0xde5d1fa3
+# vkDestroyShaderEXT(): shader can't be called on VkShaderEXT 0x550000000055 that is currently in use by VkCommandBuffer 0x564cd2b4f0d0[zink cmdbuf].
+# The Vulkan spec states: All submitted commands that refer to shader must have completed execution (https://docs.vulkan.org/spec/latest/chapters/shaders.html#VUID-vkDestroyShaderEXT-shader-08482)
+
+# spec@ext_image_dma_buf_import@ext_image_dma_buf_import-sample_yvyu
+#
+# Validation Error: [ VUID-VkMemoryGetFdInfoKHR-handleType-00671 ] | MessageID = 0xf2053079
+# vkGetMemoryFdKHR(): pGetFdInfo->memory the requested handle type (VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT) is not included in the memory's VkExportMemoryAllocateInfo::handleTypes (VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT).
+# The Vulkan spec states: handleType must have been included in VkExportMemoryAllocateInfo::handleTypes when memory was created (https://docs.vulkan.org/spec/latest/chapters/memory.html#VUID-VkMemoryGetFdInfoKHR-handleType-00671)
+# Objects: 1
+#    [0] VkDeviceMemory 0x250000000025
+
+# spec@arb_pipeline_statistics_query@arb_pipeline_statistics_query-clip
+#
+# Validation Error: [ VUID-vkCmdBeginQuery-queryPool-01922 ] | MessageID = 0xeeb9cdf3
+# vkCmdBeginQuery(): query 0 in VkQueryPool 0x2c000000002c has the same queryType (VK_QUERY_TYPE_PIPELINE_STATISTICS) as the active query 0 from VkQueryPool 0x2b000000002b (both are using index 0) in VkCommandBuffer 0x56437d2d90c0[zink cmdbuf].
+# The Vulkan spec states: queryPool must have been created with a queryType that differs from that of any queries that are active within commandBuffer (https://docs.vulkan.org/spec/latest/chapters/queries.html#VUID-vkCmdBeginQuery-queryPool-01922)
+# Objects: 3
+#     [0] VkCommandBuffer 0x56437d2d90c0[zink cmdbuf]
+#     [1] VkQueryPool 0x2c000000002c
+#     [2] VkQueryPool 0x2b000000002b
+
+# spec@arb_sparse_buffer@basic
+#
+# Validation Error: [ VUID-VkSparseMemoryBind-resourceOffset-09491 ] | MessageID = 0xc4187293
+# vkQueueBindSparse(): pBindInfo[0].pBufferBinds[0].buffer (VkBuffer 0x200000000020) is being bound, but pBindInfo[0].pBufferBinds[0].pBinds[0].size (32768) is not a multiple of required memory alignment (65536).
+# The Vulkan spec states: If the resource being bound is a VkBuffer, resourceOffset, memoryOffset and size must be an integer multiple of the alignment of the VkMemoryRequirements structure returned from a call to vkGetBufferMemoryRequirements with the buffer resource (https://docs.vulkan.org/spec/latest/chapters/sparsemem.html#VUID-VkSparseMemoryBind-resourceOffset-09491)
+# Objects: 2
+#     [0] VkDeviceMemory 0x230000000023
+#     [1] VkBuffer 0x200000000020
+
+# glx@glx_ext_no_config_context@no fbconfig
+#
+# Validation Error: [ VUID-vkDestroyImage-image-01000 ] | MessageID = 0xf2d29b5a
+# vkDestroyImage(): can't be called on VkImage 0xb800000000b8 that is currently in use by VkCommandBuffer 0x564332fcc830[zink barrier cmdbuf].
+# The Vulkan spec states: All submitted commands that refer to image, either directly or via a VkImageView, must have completed execution (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-vkDestroyImage-image-01000)

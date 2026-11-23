@@ -1,0 +1,230 @@
+/*
+ * Copyright 2026 Intel Corporation
+ * SPDX-License-Identifier: MIT
+ */
+#include "compiler/gen/gen_enums.h"
+#include "util/list.h"
+#include "util/u_dynarray.h"
+#include "jay_builder.h"
+#include "jay_builder_opcodes.h"
+#include "jay_ir.h"
+#include "jay_opcodes.h"
+#include "jay_private.h"
+
+struct ctx {
+   jay_block *last_source_block;
+   jay_def helper_flag;
+   bool halted, uses_terminate;
+   unsigned instr_left;
+};
+
+/*
+ * Takes src, a linked list containing the element pivot in the middle, and dst
+ * an empty list. Moves all elements after pivot up to the end of src to dst.
+ * Semantically equivalent to a loop of list_move but O(1) time regardless of
+ * the position of pivot in the list.
+ */
+static void
+list_partition(struct list_head *src,
+               struct list_head *dst,
+               struct list_head *pivot)
+{
+   /* dst runs from pivot[1:] to end of src */
+   dst->prev = src->prev;
+   dst->prev->next = dst;
+   dst->next = pivot->next;
+   dst->next->prev = dst;
+
+   /* src runs from src[0] to pivot */
+   src->prev = pivot;
+   src->prev->next = src;
+
+   list_validate(dst);
+   list_validate(src);
+}
+
+/*
+ * We need the exit block to run EOT. Try to pluck out the last instruction and
+ * use it for EOT in the case where we are fully halted. This breaks SSA
+ * dominance invariants but that's why this is a post-RA, post-sched pass. Only
+ * SWSB has to deal with the resulting mess.
+ *
+ * If there is at least one lane that does not halt, the penultimate block will
+ * execute filling out any registers required by the send. The only case where
+ * we come in with undefined registers is if all lanes halt and we skipped to
+ * the exit block. In that case, it doesn't matter what contents we write, but
+ * we do need a valid message descriptor to avoid hangs. In particular: the
+ * message opcode matters (since it affects message length) but the coarse bit
+ * does not matter.
+ */
+static void
+setup_exit_block(jay_builder *b, struct ctx *ctx)
+{
+   jay_inst *send = jay_last_inst(jay_last_source_block(b->func));
+   assert(send && send->op == JAY_OPCODE_SEND && jay_send_eot(send));
+   assert(jay_is_null(send->src[0]) && jay_is_null(send->src[1]));
+   assert(jay_send_skip_helpers(send));
+
+   jay_remove_instruction(send);
+   jay_builder_insert(b, send);
+}
+
+static void
+process_block(struct ctx *ctx, jay_builder *b, jay_block *block)
+{
+   jay_foreach_inst_in_block_safe_rev(block, I) {
+      b->cursor = jay_before_inst(I);
+
+      if (I->op == JAY_OPCODE_HALT) {
+         ctx->halted = ctx->uses_terminate = true;
+      } else if (I->op == JAY_OPCODE_DEMOTE) {
+         enum gen_condition cond = I->conditional_mod;
+         jay_def x = I->src[0], y = I->src[1];
+
+         /* Unconditional discard */
+         if (!cond) {
+            cond = GEN_CONDITION_EQ;
+            I->type = JAY_TYPE_U32;
+            x = y = jay_bare_reg(UGPR, 32, 0);
+         }
+
+         jay_inst *cmp = jay_CMP(b, I->type, cond, ctx->helper_flag, x, y);
+         jay_add_predicate(b, cmp, jay_negate(ctx->helper_flag), jay_null());
+         jay_remove_instruction(I);
+
+         /* We are allowed to halt after a demote if all lanes are inactive
+          * for performance, but it's not required for correctness. Only do
+          * it if it's likely profitable.
+          *
+          * We assume a shader either uses SPIR-V demote or terminate, but
+          * not both. If the shader uses terminate, there will be an actual
+          * HALT instruction after us so we don't bother with a second HALT
+          * here. Strictly there's a corner case here if all non-helpers are
+          * terminated but lanes spawned as helpers are not terminated, but
+          * this is probably reasonable as a tradeoff.
+          */
+         if (ctx->instr_left > 6 && !ctx->uses_terminate) {
+            jay_inst *halt = jay_HALT(b, true);
+            halt = jay_add_predicate(b, halt, ctx->helper_flag, jay_null());
+            ctx->halted = true;
+
+            jay_block *split = jay_new_block(b->func, block->weight);
+            list_partition(&block->instructions, &split->instructions,
+                           &halt->link);
+            list_add(&split->link, &block->link);
+
+            /* The split block either falls through or jumps to the exit */
+            for (unsigned file = GPR; file <= UGPR; ++file) {
+               jay_foreach_successor(block, succ, file) {
+                  jay_foreach_predecessor(*succ, pred, file) {
+                     if (block == *pred) {
+                        *pred = split;
+                        break;
+                     }
+                  }
+               }
+            }
+
+            util_dynarray_append_dynarray(jay_successors(split, UGPR),
+                                          jay_successors(block, UGPR));
+            util_dynarray_append_dynarray(jay_successors(split, GPR),
+                                          jay_successors(block, GPR));
+            util_dynarray_clear(jay_successors(block, UGPR));
+            util_dynarray_clear(jay_successors(block, GPR));
+
+            jay_block_add_successor(block, split, GPR);
+            jay_block_add_successor(block, jay_last_block(b->func), GPR);
+         }
+      } else if (I->op == JAY_OPCODE_IS_HELPER) {
+         jay_inst *mov = jay_MOV(b, I->dst, ctx->helper_flag);
+         mov->uniform = true;
+         mov->type = jay_flag_type(b->func);
+         jay_remove_instruction(I);
+      } else if (I->op == JAY_OPCODE_SEND && jay_send_skip_helpers(I)) {
+         jay_add_predicate(b, I, jay_negate(ctx->helper_flag), jay_null());
+      }
+
+      ++ctx->instr_left;
+   }
+}
+
+void
+jay_lower_helpers(jay_shader *shader)
+{
+   jay_function *entry = jay_shader_get_entrypoint(shader);
+   jay_builder b = jay_init_builder(entry, jay_before_function(entry));
+
+   /* By ABI with jay_assign_flags, the last flag is used to track helpers */
+   assert(shader->helpers_tracked);
+   unsigned helper_flag_no =
+      shader->num_regs[FLAG] - jay_phys_flag_per_virt(shader);
+   struct ctx ctx = { .helper_flag = jay_bare_reg(FLAG, jay_flag_bits(entry),
+                                                  helper_flag_no) };
+
+   /* Initialize the helper flag sensibly based on the dispatch mask (sr0.2) */
+   jay_def sr0_2 = jay_scalar(J_ARF, jay_flag_bits(entry), GEN_ARF_STATE);
+   sr0_2.reg = 2;
+   jay_NOT(&b, jay_flag_type(entry), ctx.helper_flag, sr0_2);
+
+   jay_foreach_block_rev(entry, block) {
+      process_block(&ctx, &b, block);
+   }
+
+   b.cursor = jay_after_block(jay_last_block(entry));
+   if (ctx.halted) {
+      jay_HALT_TARGET(&b);
+   }
+
+   setup_exit_block(&b, &ctx);
+}
+
+/*
+ * The above post-RA pass handles predication of non-uniform SENDs efficiently.
+ * However, uniform (SIMD1) sends are trickier, since we need to predicate with
+ * the uniform condition: any(!gl_HelperInvocation).
+ *
+ * We implement as (ballot(true) & ~ballot_relaxed(gl_HelperInvocation)) != 0.
+ * This correctly handles control flow, although it could be optimized.
+ * We do this with a pre-RA pass since the register/scheduling requirements are
+ * nontrivial.
+ */
+static void
+pre_ra(jay_function *f)
+{
+   jay_foreach_block(f, block) {
+      jay_def predicate = jay_null();
+
+      jay_foreach_inst_in_block_safe(block, I) {
+         if (I->op == JAY_OPCODE_SEND &&
+             I->uniform &&
+             jay_send_skip_helpers(I)) {
+
+            jay_builder b = jay_init_builder(f, jay_before_inst(I));
+
+            if (jay_is_null(predicate)) {
+               predicate = jay_alloc_def(&b, FLAG, 32, 1);
+
+               jay_def helper = jay_alloc_def(&b, UGPR, 32, 1);
+               jay_IS_HELPER(&b, helper);
+
+               jay_def ballot = jay_alloc_def(&b, FLAG, 32, 1);
+               jay_inst *mov = jay_MOV(&b, jay_null(), 1);
+               jay_set_conditional_mod(&b, mov, ballot, GEN_CONDITION_NE);
+               mov->zero_inactive = true;
+
+               jay_inst *and = jay_AND(&b, jay_flag_type(f), jay_null(), ballot,
+                                       jay_negate(helper));
+               and->uniform = true;
+               jay_set_conditional_mod(&b, and, predicate, GEN_CONDITION_NE);
+            }
+
+            jay_set_send_skip_helpers(I, false);
+            jay_add_predicate(&b, I, predicate, jay_null());
+         } else if (I->op == JAY_OPCODE_DEMOTE) {
+            predicate = jay_null();
+         }
+      }
+   }
+}
+
+JAY_DEFINE_FUNCTION_PASS(jay_lower_helpers_pre_ra, pre_ra)

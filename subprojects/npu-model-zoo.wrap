@@ -1,0 +1,5 @@
+[wrap-file]
+directory = npu-model-zoo-20261113-resnet-18
+source_url = https://gitlab.freedesktop.org/tomeu/npu-model-zoo/-/archive/20261113-resnet-18/npu-model-zoo-20261113-resnet-18.tar.gz
+source_filename = npu-model-zoo-20261113-resnet-18.tar.gz
+source_hash = ee39c9a31024a4a45f0f79dd2cf69dcf3d3e21cf7d6fe993b23eef41460796b3

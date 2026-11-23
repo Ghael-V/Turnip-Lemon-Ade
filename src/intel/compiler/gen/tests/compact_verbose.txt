@@ -1,0 +1,14 @@
+# platform | bytes | assembly; '<' encodes only, '>' decodes only
+
+tgl | 61 00 01 61 00 02 1d 00 |         mov (8|M0)                r1.0<1>:f     r2.0<1;1,0>:f                     {Compacted}
+bmg | 40 00 00 20 01 02 00 03 |         add (16|M0)               r1.0<1>:f     r2.0<1;1,0>:f     r3.0<1;1,0>:f   {Compacted}
+dg2 | 5b 00 01 a0 00 02 04 03 |         mad (16|M0)               r1.0<1>:f     r2.0<1;0>:f       r3.0<1;0>:f       r4.0<1>:f {Compacted}
+tgl | 61 01 01 7e 00 02 1d 00 |         mov (8|M0)                r1.0<1>:f     r2.0<1;1,0>:f                     {AccWrEn,Compacted,@1}
+
+# Pre-compact transformations. Asm round-trip may differ slightly.
+dg2 | 40 00 01 20 00 02 00 03 <         add (16|M0)               r1.0<1>:f     r2.0<8;8,1>:f     r3.0<8;8,1>:f     {Compacted}
+dg2 | 40 00 01 20 00 02 00 03 >         add (16|M0)               r1.0<1>:f     r2.0<1;1,0>:f     r3.0<1;1,0>:f   {Compacted}
+skl | 01 ab 00 20 00 01 00 00 <         mov (8|M0)                r1.0<1>:f     0x00000000:f                      {Compacted}
+skl | 01 ab 00 20 00 01 00 00 >         mov (8|M0)                r1.0<1>:f     0x00000000:vf                     {Compacted}
+skl | 01 6b 00 20 00 01 00 01 <         mov (8|M0)                r1.0<1>:d     1:d                               {Compacted}
+skl | 01 6b 00 20 00 01 00 01 >         mov (8|M0)                r1.0<1>:ud    0x00000001:ud                     {Compacted}

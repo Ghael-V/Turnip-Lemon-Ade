@@ -1,0 +1,18 @@
+dEQP-GLES31.functional.copy_image.mixed.viewclass_128_bits_mixed.rgba32f_rgba_astc_6x5_khr.cubemap_to_texture2d
+dEQP-GLES31.functional.copy_image.mixed.viewclass_128_bits_mixed.rgba8_etc2_eac_rgba32ui.cubemap_to_texture2d_array
+dEQP-GLES31.functional.copy_image.mixed.viewclass_128_bits_mixed.rgba_astc_4x4_khr_rgba32ui.texture3d_to_texture2d_array
+dEQP-GLES31.functional.copy_image.mixed.viewclass_128_bits_mixed.srgb8_alpha8_astc_10x5_khr_rgba32f.texture2d_to_texture3d
+dEQP-GLES31.functional.copy_image.mixed.viewclass_64_bits_mixed.r11_eac_rg32i.texture2d_to_texture2d_array
+dEQP-GLES31.functional.copy_image.non_compressed.viewclass_32_bits.rgb10_a2_r32ui.texture3d_to_renderbuffer
+dEQP-GLES31.functional.copy_image.non_compressed.viewclass_32_bits.rgb10_a2_rgb10_a2ui.texture2d_array_to_texture2d
+dEQP-GLES31.functional.copy_image.non_compressed.viewclass_32_bits.srgb8_alpha8_rgb9_e5.texture2d_to_texture2d_array
+glx@glx-make-current
+glx@glx-multithread-texture
+spec@arb_fragment_shader_interlock@arb_fragment_shader_interlock-image-load-store
+spec@arb_tessellation_shader@arb_tessellation_shader-tes-gs-max-output -small -scan 1 50
+spec@arb_texture_multisample@arb_texture_multisample-dsa-texelfetch
+spec@arb_texture_multisample@arb_texture_multisample-dsa-texelfetch@Texture type: GL_RGB9_E5
+spec@arb_timer_query@timestamp-get
+spec@glsl-1.30@execution@texelfetch fs sampler3d 1x129x9-98x129x9
+spec@glsl-1.50@execution@geometry@point-size-out
+spec@glsl-1.50@execution@redeclare-pervertex-out-subset-gs

@@ -1,0 +1,1440 @@
+/*
+ * Copyright © 2020 Google, Inc.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a
+ * copy of this software and associated documentation files (the "Software"),
+ * to deal in the Software without restriction, including without limitation
+ * the rights to use, copy, modify, merge, publish, distribute, sublicense,
+ * and/or sell copies of the Software, and to permit persons to whom the
+ * Software is furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice (including the next
+ * paragraph) shall be included in all copies or substantial portions of the
+ * Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
+ * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+ * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+ * DEALINGS IN THE SOFTWARE.
+ */
+
+#include "u_trace.h"
+
+#include <inttypes.h>
+
+#include "util/detect_os.h"
+#include "util/list.h"
+#include "util/log.h"
+#include "util/u_call_once.h"
+#include "util/u_debug.h"
+#include "util/u_vector.h"
+
+#if DETECT_OS_WINDOWS
+#include <windows.h>
+#else
+#include <unistd.h>
+#endif
+
+#if U_TRACE_HAS_COMPRESS
+#include <zlib.h>
+#endif
+
+#define __NEEDS_TRACE_PRIV
+#include "u_trace_priv.h"
+
+#define TIMESTAMP_BUF_SIZE 0x1000
+
+struct u_trace_state {
+   util_once_flag once;
+   FILE *trace_file;
+   /* Set instead of trace_file when MESA_GPU_TRACEFILE contains "%i": each
+    * context opens its own file with "%i" replaced by the context ID. An
+    * owned copy, with "%p" already expanded.
+    */
+   char *tracefile_template;
+   enum u_trace_type enabled_traces;
+
+#if U_TRACE_HAS_COMPRESS
+   /* Shared compressed output, set instead of trace_file for a ".gz" path
+    * without "%i". Contexts drain into it under shared_out_mtx.
+    */
+   gzFile trace_file_gz;
+#endif
+};
+static struct u_trace_state u_trace_state = { .once = UTIL_ONCE_FLAG_INIT };
+
+/* Incremented for each initialized context to assign u_trace_context::id. */
+static uint32_t u_trace_context_count;
+
+/* Serializes contexts writing to a shared trace file. Taken around every
+ * printer callback and gzip drain, whether or not the output is actually
+ * shared: it is uncontended in that case and costs less than the write it
+ * wraps. Kept off the surrounding timestamp reads, which can block.
+ */
+static simple_mtx_t shared_out_mtx = SIMPLE_MTX_INITIALIZER;
+
+/* Flushes utctx->out after each batch so a crash still leaves the trace
+ * readable up to the last processed submit. For gzip output this drains the
+ * batch buffer into the gz stream and rewinds it for the next batch.
+ */
+static void
+flush_output(struct u_trace_context *utctx)
+{
+#if U_TRACE_HAS_COMPRESS
+   if (utctx->compress_gz) {
+      u_memstream_flush(&utctx->compress_mem);
+
+      simple_mtx_lock(&shared_out_mtx);
+      if (utctx->compress_buf_size > 0) {
+         gzwrite(utctx->compress_gz, utctx->compress_buf,
+                 utctx->compress_buf_size);
+         rewind(utctx->out);
+         utctx->compress_buf_size = 0;
+      }
+      gzflush(utctx->compress_gz, Z_SYNC_FLUSH);
+      simple_mtx_unlock(&shared_out_mtx);
+      return;
+   }
+#endif
+
+   fflush(utctx->out);
+}
+
+#if U_TRACE_HAS_COMPRESS
+/* Points utctx->out at a memstream buffering one batch, the bridge from the
+ * printers' FILE* to gzwrite(); flush_output() drains it into gz.
+ */
+static bool
+attach_gz_output(struct u_trace_context *utctx, gzFile gz)
+{
+   if (!u_memstream_open(&utctx->compress_mem, &utctx->compress_buf,
+                         &utctx->compress_buf_size))
+      return false;
+
+   utctx->compress_gz = gz;
+   utctx->out = u_memstream_get(&utctx->compress_mem);
+   return true;
+}
+#endif
+
+/* Closes a context's own output. A shared gz stream is closed at process
+ * exit instead, not per context.
+ */
+static void
+close_output(struct u_trace_context *utctx)
+{
+#if U_TRACE_HAS_COMPRESS
+   if (utctx->compress_gz) {
+      u_memstream_close(&utctx->compress_mem);
+      free(utctx->compress_buf);
+      if (utctx->compress_gz != u_trace_state.trace_file_gz)
+         gzclose(utctx->compress_gz);
+      return;
+   }
+#endif
+
+   fclose(utctx->out);
+}
+
+#ifdef HAVE_PERFETTO
+/**
+ * Global list of contexts, so we can defer starting the queue until
+ * perfetto tracing is started.
+ */
+static struct list_head ctx_list = { &ctx_list, &ctx_list };
+
+static simple_mtx_t ctx_list_mutex = SIMPLE_MTX_INITIALIZER;
+/* The amount of Perfetto tracers connected */
+int _u_trace_perfetto_count;
+#endif
+
+struct u_trace_event {
+   const struct u_tracepoint *tp;
+   struct u_trace_buffer_view timestamp;
+   struct u_trace_buffer_view indirect;
+   uint32_t payload_size;
+   alignas(uint64_t) uint8_t payload[];
+};
+
+/**
+ * A "chunk" of trace-events and corresponding timestamp buffer.  As
+ * trace events are emitted, additional trace chucks will be allocated
+ * as needed.  When u_trace_flush() is called, they are transferred
+ * from the u_trace to the u_trace_context queue.
+ */
+struct u_trace_flush {
+   struct u_trace trace;
+
+   struct util_queue_fence fence;
+
+   bool eof;
+   uint32_t frame_nr; /* frame idx from the driver */
+
+   void *flush_data; /* assigned by u_trace_flush */
+
+   /**
+    * Several chunks reference a single flush_data instance thus only
+    * one chunk should be designated to free the data.
+    */
+   bool free_flush_data;
+};
+
+static void
+u_trace_flush_destroy(struct u_trace_flush *flush)
+{
+   struct u_trace *ut = &flush->trace;
+   struct u_trace_context *utctx = ut->utctx;
+
+   if (flush->free_flush_data && utctx->delete_flush_data)
+      utctx->delete_flush_data(utctx, flush->flush_data);
+
+   u_trace_fini(ut);
+
+   util_queue_fence_destroy(&flush->fence);
+   free(flush);
+}
+
+struct u_trace_printer {
+   void (*start)(struct u_trace_context *utctx);
+   void (*end)(struct u_trace_context *utctx);
+   void (*start_of_frame)(struct u_trace_context *utctx);
+   void (*end_of_frame)(struct u_trace_context *utctx);
+   void (*start_of_batch)(struct u_trace_context *utctx);
+   void (*end_of_batch)(struct u_trace_context *utctx);
+   void (*event)(struct u_trace_context *utctx,
+                 const struct u_trace_event *evt,
+                 uint64_t ns,
+                 int32_t delta,
+                 const void *indirect);
+};
+
+static void
+print_txt_start(struct u_trace_context *utctx)
+{
+}
+
+static void
+print_txt_end_of_frame(struct u_trace_context *utctx)
+{
+   fprintf(utctx->out, "END OF FRAME %u (ctx %u)\n", utctx->frame_nr, utctx->id);
+}
+
+static void
+print_txt_start_of_batch(struct u_trace_context *utctx)
+{
+   fprintf(utctx->out, "+----- NS -----+ +-- Δ --+  +----- MSG -----\n");
+}
+
+static void
+print_txt_end_of_batch(struct u_trace_context *utctx)
+{
+   uint64_t elapsed = utctx->last_time_ns - utctx->first_time_ns;
+   fprintf(utctx->out, "ELAPSED: %" PRIu64 " ns\n", elapsed);
+}
+
+static void
+print_txt_event(struct u_trace_context *utctx,
+                const struct u_trace_event *evt,
+                uint64_t ns,
+                int32_t delta,
+                const void *indirect)
+{
+   if (evt->tp->type == u_tracepoint_type_end_range)
+      utctx->indentation--;
+
+   fprintf(utctx->out, "%016" PRIu64 " %+9d: ", ns, delta);
+
+   for (uint32_t i = 0; i < utctx->indentation; i++)
+      fprintf(utctx->out, "   ");
+
+   fprintf(utctx->out, "%s ", evt->tp->name);
+
+   if (evt->tp->print)
+      evt->tp->print(utctx->out, evt->payload, indirect);
+   fprintf(utctx->out, "\n");
+
+   if (evt->tp->type == u_tracepoint_type_begin_range)
+      utctx->indentation++;
+}
+
+static struct u_trace_printer txt_printer = {
+   .start = &print_txt_start,
+   .end = &print_txt_start,
+   .start_of_frame = &print_txt_start,
+   .end_of_frame = &print_txt_end_of_frame,
+   .start_of_batch = &print_txt_start_of_batch,
+   .end_of_batch = &print_txt_end_of_batch,
+   .event = &print_txt_event,
+};
+
+static void
+print_csv_start(struct u_trace_context *utctx)
+{
+   fprintf(utctx->out, "frame,batch,time_ns,event,\n");
+}
+
+static void
+print_csv_end(struct u_trace_context *utctx)
+{
+   fprintf(utctx->out, "\n");
+}
+
+static void
+print_csv_start_of_frame(struct u_trace_context *utctx)
+{
+}
+
+static void
+print_csv_end_of_frame(struct u_trace_context *utctx)
+{
+}
+
+static void
+print_csv_start_of_batch(struct u_trace_context *utctx)
+{
+}
+
+static void
+print_csv_end_of_batch(struct u_trace_context *utctx)
+{
+}
+
+static void
+print_csv_event(struct u_trace_context *utctx,
+                const struct u_trace_event *evt,
+                uint64_t ns,
+                int32_t delta,
+                const void *indirect)
+{
+   fprintf(utctx->out, "%u,%u,%"PRIu64",%s,",
+           utctx->frame_nr, utctx->batch_nr, ns, evt->tp->name);
+   /* The ID goes last, so existing fields keep their positions. */
+   if (evt->tp->print) {
+      evt->tp->print(utctx->out, evt->payload, indirect);
+      fprintf(utctx->out, ", ");
+   }
+   fprintf(utctx->out, "ctx=%u\n", utctx->id);
+}
+
+static struct u_trace_printer csv_printer = {
+   .start = print_csv_start,
+   .end = print_csv_end,
+   .start_of_frame = &print_csv_start_of_frame,
+   .end_of_frame = &print_csv_end_of_frame,
+   .start_of_batch = &print_csv_start_of_batch,
+   .end_of_batch = &print_csv_end_of_batch,
+   .event = &print_csv_event,
+};
+
+static void
+print_json_start(struct u_trace_context *utctx)
+{
+   fprintf(utctx->out, "[\n");
+}
+
+static void
+print_json_end(struct u_trace_context *utctx)
+{
+   fprintf(utctx->out, "\n]");
+}
+
+static void
+print_json_start_of_frame(struct u_trace_context *utctx)
+{
+   if (utctx->frame_nr != 0)
+      fprintf(utctx->out, ",\n");
+   fprintf(utctx->out, "{\n\"ctx\": %u,\n", utctx->id);
+   fprintf(utctx->out, "\"frame\": %u,\n", utctx->frame_nr);
+   fprintf(utctx->out, "\"batches\": [\n");
+}
+
+static void
+print_json_end_of_frame(struct u_trace_context *utctx)
+{
+   fprintf(utctx->out, "]\n}\n");
+}
+
+static void
+print_json_start_of_batch(struct u_trace_context *utctx)
+{
+   if (utctx->batch_nr != 0)
+      fprintf(utctx->out, ",\n");
+   fprintf(utctx->out, "{\n\"events\": [\n");
+}
+
+static void
+print_json_end_of_batch(struct u_trace_context *utctx)
+{
+   uint64_t elapsed = utctx->last_time_ns - utctx->first_time_ns;
+   fprintf(utctx->out, "],\n");
+   fprintf(utctx->out, "\"duration_ns\": %" PRIu64 "\n", elapsed);
+   fprintf(utctx->out, "}\n");
+}
+
+static void
+print_json_event(struct u_trace_context *utctx,
+                 const struct u_trace_event *evt,
+                 uint64_t ns,
+                 int32_t delta,
+                 const void *indirect)
+{
+   if (utctx->event_nr != 0)
+      fprintf(utctx->out, ",\n");
+   fprintf(utctx->out, "{\n\"event\": \"%s\",\n", evt->tp->name);
+   fprintf(utctx->out, "\"time_ns\": \"%016" PRIu64 "\",\n", ns);
+   fprintf(utctx->out, "\"params\": {");
+   if (evt->tp->print)
+      evt->tp->print_json(utctx->out, evt->payload, indirect);
+   fprintf(utctx->out, "}\n}\n");
+}
+
+static struct u_trace_printer json_printer = {
+   .start = print_json_start,
+   .end = print_json_end,
+   .start_of_frame = &print_json_start_of_frame,
+   .end_of_frame = &print_json_end_of_frame,
+   .start_of_batch = &print_json_start_of_batch,
+   .end_of_batch = &print_json_end_of_batch,
+   .event = &print_json_event,
+};
+
+static const struct debug_named_value config_control[] = {
+   { "print", U_TRACE_TYPE_PRINT, "Enable print" },
+   { "print_csv", U_TRACE_TYPE_PRINT_CSV, "Enable print in CSV" },
+   { "print_json", U_TRACE_TYPE_PRINT_JSON, "Enable print in JSON" },
+#ifdef HAVE_PERFETTO
+   { "perfetto", U_TRACE_TYPE_PERFETTO_ENV, "Enable perfetto" },
+#endif
+   { "markers", U_TRACE_TYPE_MARKERS, "Enable marker trace" },
+   { "indirects", U_TRACE_TYPE_INDIRECTS, "Enable indirect data capture" },
+   { "ranges", U_TRACE_TYPE_RANGES, "Tracepoint ranges print" },
+   DEBUG_NAMED_VALUE_END
+};
+
+static void
+trace_file_fini(void)
+{
+   if (u_trace_state.trace_file && u_trace_state.trace_file != stdout)
+      fclose(u_trace_state.trace_file);
+   u_trace_state.trace_file = NULL;
+
+#if U_TRACE_HAS_COMPRESS
+   if (u_trace_state.trace_file_gz)
+      gzclose(u_trace_state.trace_file_gz);
+   u_trace_state.trace_file_gz = NULL;
+#endif
+}
+
+/* Always defined, so we can warn on a ".gz" path in a build without
+ * compression support rather than silently writing plain text to it.
+ */
+static bool
+path_wants_compression(const char *path)
+{
+   size_t len = strlen(path);
+   return len >= 3 && !strcmp(path + len - 3, ".gz");
+}
+
+static unsigned
+trace_process_id(void)
+{
+#if DETECT_OS_WINDOWS
+   return (unsigned) GetCurrentProcessId();
+#else
+   return (unsigned) getpid();
+#endif
+}
+
+/* Returns a newly allocated copy of path with the first occurrence of token,
+ * if any, replaced by value.
+ */
+static char *
+expand_path_token(const char *path, const char *token, unsigned value)
+{
+   const char *pos = strstr(path, token);
+   if (!pos)
+      return strdup(path);
+
+   size_t len = strlen(path) + 16;
+   char *expanded = malloc(len);
+   if (!expanded)
+      return NULL;
+
+   snprintf(expanded, len, "%.*s%u%s", (int) (pos - path), path, value,
+            pos + strlen(token));
+   return expanded;
+}
+
+static void
+u_trace_state_init_once(void)
+{
+   u_trace_state.enabled_traces =
+      debug_get_flags_option("MESA_GPU_TRACES", config_control, 0);
+   const char *tracefile_name = debug_get_option("MESA_GPU_TRACEFILE", NULL);
+   char *expanded = NULL;
+   if (tracefile_name && __normal_user()) {
+      /* "%p" is substituted here, before anything else looks at the name, so
+       * it applies in every mode. It separates processes, where "%i" separates
+       * contexts within one: a driver environment variable set for a whole
+       * session reaches every process in it, and their context IDs all start
+       * at zero, so without this they would name the same file and truncate
+       * each other's output.
+       */
+      expanded = expand_path_token(tracefile_name, "%p", trace_process_id());
+      if (expanded)
+         tracefile_name = expanded;
+
+#if !U_TRACE_HAS_COMPRESS
+      if (path_wants_compression(tracefile_name)) {
+         mesa_logw("u_trace: MESA_GPU_TRACEFILE requests gzip compression "
+                   "(\".gz\") but this build doesn't support it (needs "
+                   "zlib); writing uncompressed");
+      }
+#endif
+      if (strstr(tracefile_name, "%i")) {
+         /* Kept for the process lifetime, so hand ownership over. */
+         u_trace_state.tracefile_template = expanded;
+         expanded = NULL;
+#if U_TRACE_HAS_COMPRESS
+      } else if (path_wants_compression(tracefile_name)) {
+         u_trace_state.trace_file_gz = gzopen(tracefile_name, "wb");
+         if (u_trace_state.trace_file_gz)
+            atexit(trace_file_fini);
+#endif
+      } else {
+         u_trace_state.trace_file = fopen(tracefile_name, "w");
+         if (u_trace_state.trace_file != NULL) {
+            atexit(trace_file_fini);
+         }
+      }
+   }
+   free(expanded);
+   if (!u_trace_state.trace_file && !u_trace_state.tracefile_template
+#if U_TRACE_HAS_COMPRESS
+       && !u_trace_state.trace_file_gz
+#endif
+      ) {
+      u_trace_state.trace_file = stdout;
+   }
+}
+
+/* Substitutes the context ID for "%i" and opens the result as utctx->out. */
+static bool
+open_tracefile_for_context(struct u_trace_context *utctx)
+{
+   char *name = expand_path_token(u_trace_state.tracefile_template, "%i",
+                                  utctx->id);
+   if (!name)
+      return false;
+
+#if U_TRACE_HAS_COMPRESS
+   if (path_wants_compression(name)) {
+      gzFile gz = gzopen(name, "wb");
+      free(name);
+      if (!gz)
+         return false;
+
+      if (!attach_gz_output(utctx, gz)) {
+         gzclose(gz);
+         return false;
+      }
+      return true;
+   }
+#endif
+
+   FILE *file = fopen(name, "w");
+   free(name);
+   utctx->out = file;
+   return file != NULL;
+}
+
+void
+u_trace_state_init(void)
+{
+   util_call_once(&u_trace_state.once, u_trace_state_init_once);
+}
+
+void
+u_trace_state_reset(void)
+{
+   trace_file_fini();
+   free(u_trace_state.tracefile_template);
+   u_trace_state = (struct u_trace_state) { .once = UTIL_ONCE_FLAG_INIT };
+   u_trace_context_count = 0;
+}
+
+bool
+u_trace_is_enabled(enum u_trace_type type)
+{
+   /* Active is only tracked in a given u_trace context, so if you're asking
+    * us if U_TRACE_TYPE_PERFETTO (_ENV | _ACTIVE) is enabled, then just check
+    * _ENV ("perfetto tracing is desired, but perfetto might not be running").
+    */
+   type &= ~U_TRACE_TYPE_PERFETTO_ACTIVE;
+
+   return (u_trace_state.enabled_traces & type) == type;
+}
+
+static void
+queue_init(struct u_trace_context *utctx)
+{
+   if (utctx->queue.jobs)
+      return;
+
+   bool ret = util_queue_init(
+      &utctx->queue, "traceq", 256, 1,
+      UTIL_QUEUE_INIT_USE_MINIMUM_PRIORITY | UTIL_QUEUE_INIT_RESIZE_IF_FULL,
+      NULL);
+   assert(ret);
+
+   if (!ret)
+      utctx->out = NULL;
+}
+
+static uint32_t
+u_trace_event_fuzzy_hash(const void *_event)
+{
+   const struct u_trace_event *event = _event;
+
+   uint32_t hash = _mesa_hash_pointer(event->tp);
+   if (!event->tp->fuzzy_hash)
+      return hash;
+
+   return hash * event->tp->fuzzy_hash(event->payload);
+}
+
+static bool
+u_trace_event_fuzzy_equals(const void *_a, const void *_b)
+{
+   const struct u_trace_event *a = _a;
+   const struct u_trace_event *b = _b;
+
+   if (a->tp != b->tp)
+      return false;
+
+   if (a->tp->fuzzy_equals && !a->tp->fuzzy_equals(a->payload, b->payload))
+      return false;
+
+   return true;
+}
+
+void
+u_trace_context_init(struct u_trace_context *utctx,
+                     void *pctx,
+                     uint32_t timestamp_size_bytes,
+                     uint32_t max_indirect_size_bytes,
+                     u_trace_create_buffer create_buffer,
+                     u_trace_delete_buffer delete_buffer,
+                     u_trace_record_ts record_timestamp,
+                     u_trace_read_ts read_timestamp,
+                     u_trace_capture_data capture_data,
+                     u_trace_get_data get_data,
+                     u_trace_delete_flush_data delete_flush_data)
+{
+   u_trace_state_init();
+
+   utctx->id = p_atomic_fetch_add(&u_trace_context_count, 1);
+   utctx->enabled_traces = u_trace_state.enabled_traces;
+   utctx->pctx = pctx;
+   utctx->create_buffer = create_buffer;
+   utctx->delete_buffer = delete_buffer;
+   utctx->record_timestamp = record_timestamp;
+   utctx->capture_data = capture_data;
+   utctx->get_data = get_data;
+   utctx->read_timestamp = read_timestamp;
+   utctx->delete_flush_data = delete_flush_data;
+   utctx->timestamp_size_bytes = timestamp_size_bytes;
+   utctx->max_indirect_size_bytes = max_indirect_size_bytes;
+
+   utctx->last_time_ns = 0;
+   utctx->first_time_ns = 0;
+   utctx->frame_nr = 0;
+   utctx->batch_nr = 0;
+   utctx->event_nr = 0;
+   utctx->start_of_frame = true;
+
+   utctx->dummy_indirect_data = calloc(1, max_indirect_size_bytes);
+
+   util_dynarray_init(&utctx->flushed_traces, NULL);
+
+   utctx->out = NULL;
+   utctx->out_owned = false;
+#if U_TRACE_HAS_COMPRESS
+   utctx->compress_buf = NULL;
+   utctx->compress_buf_size = 0;
+   utctx->compress_gz = NULL;
+#endif
+
+   if (utctx->enabled_traces & U_TRACE_TYPE_PRINT) {
+      if (u_trace_state.tracefile_template) {
+         utctx->out_owned = open_tracefile_for_context(utctx);
+         if (!utctx->out_owned) {
+            mesa_logw("u_trace: failed to open trace file for context %u, "
+                      "falling back to stdout", utctx->id);
+         }
+      }
+#if U_TRACE_HAS_COMPRESS
+      /* A shared ".gz" needs a per-context batch buffer that drains into the
+       * one shared gz stream.
+       */
+      if (!utctx->out && u_trace_state.trace_file_gz) {
+         if (attach_gz_output(utctx, u_trace_state.trace_file_gz)) {
+            utctx->out_owned = true;
+         } else {
+            mesa_logw("u_trace: failed to allocate output buffer for "
+                      "context %u, falling back to unbuffered stdout",
+                      utctx->id);
+         }
+      }
+#endif
+      if (!utctx->out) {
+         utctx->out = u_trace_state.trace_file ? u_trace_state.trace_file
+                                               : stdout;
+      }
+
+      if (utctx->enabled_traces & U_TRACE_TYPE_JSON) {
+         utctx->out_printer = &json_printer;
+      } else if (utctx->enabled_traces & U_TRACE_TYPE_CSV) {
+         utctx->out_printer = &csv_printer;
+      } else {
+         utctx->out_printer = &txt_printer;
+      }
+
+      /* Contexts sharing a file each write their own top-level JSON array,
+       * which don't combine into a valid document; per-context files fix it.
+       */
+      if (utctx->out_printer == &json_printer && utctx->id > 0 &&
+          !(u_trace_state.tracefile_template && utctx->out_owned)) {
+         mesa_logw("u_trace: multiple contexts sharing one trace file "
+                   "produce invalid JSON, use %%i in MESA_GPU_TRACEFILE "
+                   "for a file per context");
+      }
+   } else {
+      utctx->out_printer = NULL;
+   }
+
+   util_dynarray_init(&utctx->begin_tracepoints, NULL);
+   _mesa_hash_table_init(&utctx->tracepoint_ranges, NULL, u_trace_event_fuzzy_hash, u_trace_event_fuzzy_equals);
+
+#ifdef HAVE_PERFETTO
+   simple_mtx_lock(&ctx_list_mutex);
+   list_add(&utctx->node, &ctx_list);
+   if (_u_trace_perfetto_count > 0)
+      utctx->enabled_traces |= U_TRACE_TYPE_PERFETTO_ACTIVE;
+
+   if (u_trace_should_process(utctx))
+      queue_init(utctx);
+
+   simple_mtx_unlock(&ctx_list_mutex);
+#else
+   if (u_trace_should_process(utctx))
+      queue_init(utctx);
+#endif
+
+   if (!(p_atomic_read_relaxed(&utctx->enabled_traces) &
+         U_TRACE_TYPE_REQUIRE_QUEUING))
+      return;
+
+   if (utctx->out) {
+      simple_mtx_lock(&shared_out_mtx);
+      utctx->out_printer->start(utctx);
+      simple_mtx_unlock(&shared_out_mtx);
+   }
+}
+
+static void
+free_tracepoint_ranges_entry(struct hash_entry *entry)
+{
+   struct u_trace_tracepoint_range *range = entry->data;
+   _mesa_hash_table_fini(&range->child_ranges, free_tracepoint_ranges_entry);
+   free(range);
+   free((void *)entry->key);
+}
+
+void
+u_trace_context_fini(struct u_trace_context *utctx)
+{
+#ifdef HAVE_PERFETTO
+   simple_mtx_lock(&ctx_list_mutex);
+   list_del(&utctx->node);
+   simple_mtx_unlock(&ctx_list_mutex);
+#endif
+
+   util_dynarray_fini(&utctx->begin_tracepoints);
+   _mesa_hash_table_fini(&utctx->tracepoint_ranges, free_tracepoint_ranges_entry);
+
+   if (utctx->out) {
+      simple_mtx_lock(&shared_out_mtx);
+      if (!utctx->start_of_frame) {
+         utctx->out_printer->end_of_frame(utctx);
+      }
+      utctx->out_printer->end(utctx);
+      simple_mtx_unlock(&shared_out_mtx);
+
+      flush_output(utctx);
+      if (utctx->out_owned)
+         close_output(utctx);
+   }
+
+   free (utctx->dummy_indirect_data);
+
+   if (util_queue_is_initialized(&utctx->queue)) {
+      util_queue_finish(&utctx->queue);
+      util_queue_destroy(&utctx->queue);
+   }
+   util_dynarray_foreach(&utctx->flushed_traces, struct u_trace_flush *, flush) {
+      u_trace_flush_destroy(*flush);
+   }
+   util_dynarray_fini(&utctx->flushed_traces);
+}
+
+#ifdef HAVE_PERFETTO
+void
+u_trace_perfetto_start(void)
+{
+   simple_mtx_lock(&ctx_list_mutex);
+
+   /* A context created with nothing to trace has no queue yet;
+    * u_trace_context_process() creates it on the context's own thread.
+    */
+   list_for_each_entry (struct u_trace_context, utctx, &ctx_list, node) {
+      p_atomic_set(&utctx->enabled_traces,
+                   utctx->enabled_traces | U_TRACE_TYPE_PERFETTO_ACTIVE);
+   }
+
+   _u_trace_perfetto_count++;
+
+   simple_mtx_unlock(&ctx_list_mutex);
+}
+
+void
+u_trace_perfetto_stop(void)
+{
+   simple_mtx_lock(&ctx_list_mutex);
+
+   assert(_u_trace_perfetto_count > 0);
+   _u_trace_perfetto_count--;
+   if (_u_trace_perfetto_count == 0) {
+      list_for_each_entry (struct u_trace_context, utctx, &ctx_list, node) {
+         p_atomic_set(&utctx->enabled_traces,
+                      utctx->enabled_traces & ~U_TRACE_TYPE_PERFETTO_ACTIVE);
+      }
+   }
+
+   simple_mtx_unlock(&ctx_list_mutex);
+}
+#endif
+
+enum u_trace_buffer_list_index {
+   u_trace_buffer_list_timestamps,
+   u_trace_buffer_list_indirect,
+};
+
+struct u_trace_buffer {
+   void *buffer;
+   uint32_t alloc_offset;
+   uint32_t size;
+};
+
+static void *
+u_trace_buffer_view_get_buffer(struct u_trace *ut, enum u_trace_buffer_list_index list_index, struct u_trace_buffer_view view)
+{
+   struct util_dynarray *list = &ut->buffers[list_index];
+   struct u_trace_buffer *buffer = util_dynarray_element(list, struct u_trace_buffer, view.buffer_index);
+   return buffer->buffer;
+}
+
+static char *
+print_time(void *ctx, double time_ns)
+{
+   if (time_ns < 1000)
+      return ralloc_asprintf(ctx, "%.2fns", time_ns);
+   if (time_ns < 1000 * 1000)
+      return ralloc_asprintf(ctx, "%.2fus", time_ns / 1000);
+   if (time_ns < 1000 * 1000 * 1000)
+      return ralloc_asprintf(ctx, "%.2fms", time_ns / (1000 * 1000));
+   return ralloc_asprintf(ctx, "%.2fs", time_ns / (1000 * 1000 * 1000));
+}
+
+static int
+compare_ranges(const void *_a, const void *_b)
+{
+   const struct hash_entry *a = _a;
+   const struct hash_entry *b = _b;
+
+   struct u_trace_tracepoint_range *range_a = a->data;
+   struct u_trace_tracepoint_range *range_b = b->data;
+
+   return range_a->duration_ns == range_b->duration_ns ? 0 : (range_a->duration_ns > range_b->duration_ns ? -1 : 1);
+}
+
+static void
+print_ranges(struct u_trace_context *utctx, struct hash_table *ranges, uint32_t indentation)
+{
+   void *ctx = ralloc_context(NULL);
+
+   struct hash_entry *sorted_ranges = ralloc_array(ctx, struct hash_entry, _mesa_hash_table_num_entries(ranges));
+   uint32_t dst_index = 0;
+   hash_table_foreach(ranges, entry) {
+      sorted_ranges[dst_index] = *entry;
+      dst_index++;
+   }
+
+   qsort(sorted_ranges, _mesa_hash_table_num_entries(ranges), sizeof(struct hash_entry), compare_ranges);
+
+   for (uint32_t i = 0; i < _mesa_hash_table_num_entries(ranges); i++) {
+      struct hash_entry *entry = &sorted_ranges[i];
+      const struct u_trace_event *event = entry->key;
+      struct u_trace_tracepoint_range *range = entry->data;
+      for (uint32_t j = 0; j < indentation; j++)
+         fprintf(stderr, "   ");
+      fprintf(stderr, "%s ", event->tp->name);
+      if (event->tp->print_fuzzy_hash_args) {
+         event->tp->print_fuzzy_hash_args(stderr, event->payload);
+         fprintf(stderr, " ");
+      }
+      fprintf(stderr, "(avg/frame=%s avg=%s count=%u total=%s)\n",
+              print_time(ctx, range->duration_ns / utctx->accumulated_frame_count),
+              print_time(ctx, range->duration_ns / range->count), range->count,
+              print_time(ctx, range->duration_ns));
+      print_ranges(utctx, &range->child_ranges, indentation + 1);
+   }
+   ralloc_free(ctx);
+}
+
+static void
+process_flush(void *job, void *gdata, int thread_index)
+{
+   struct u_trace_flush *flush = job;
+   struct u_trace *ut = &flush->trace;
+   struct u_trace_context *utctx = ut->utctx;
+
+   if (flush->frame_nr != U_TRACE_FRAME_UNKNOWN &&
+       flush->frame_nr != utctx->frame_nr) {
+      if (utctx->out) {
+         simple_mtx_lock(&shared_out_mtx);
+         utctx->out_printer->end_of_frame(utctx);
+         simple_mtx_unlock(&shared_out_mtx);
+      }
+      utctx->frame_nr = flush->frame_nr;
+      utctx->start_of_frame = true;
+   }
+
+   if (utctx->start_of_frame) {
+      utctx->start_of_frame = false;
+      utctx->batch_nr = 0;
+      if (utctx->out) {
+         simple_mtx_lock(&shared_out_mtx);
+         utctx->out_printer->start_of_frame(utctx);
+         simple_mtx_unlock(&shared_out_mtx);
+      }
+   }
+
+   utctx->event_nr = 0;
+   if (utctx->out) {
+      simple_mtx_lock(&shared_out_mtx);
+      utctx->out_printer->start_of_batch(utctx);
+      simple_mtx_unlock(&shared_out_mtx);
+   }
+
+   uint64_t last_timestamp = 0;
+   struct u_trace_buffer_view last_timestamp_view = {
+      .buffer_index = UINT32_MAX,
+   };
+
+   util_dynarray_foreach(&ut->events, struct u_trace_event *, _event) {
+      struct u_trace_event *event = *_event;
+      if (!event->tp)
+         continue;
+
+      uint64_t timestamp = last_timestamp;
+      if (memcmp(&event->timestamp, &last_timestamp_view, sizeof(struct u_trace_buffer_view))) {
+         void *timestamp_buffer =
+            u_trace_buffer_view_get_buffer(ut, u_trace_buffer_list_timestamps, event->timestamp);
+         timestamp = utctx->read_timestamp(utctx, timestamp_buffer, event->timestamp.offset,
+                                           event->tp->flags, flush->flush_data);
+         last_timestamp = timestamp;
+         last_timestamp_view = event->timestamp;
+      }
+
+      if (utctx->enabled_traces & U_TRACE_TYPE_RANGES) {
+         if (event->tp->type == u_tracepoint_type_begin_range) {
+            struct u_trace_begin_tracepoint range = {
+               .event = event,
+               .timestamp_ns = timestamp,
+            };
+            util_dynarray_append(&utctx->begin_tracepoints, range);
+         } else if (event->tp->type == u_tracepoint_type_end_range) {
+            struct u_trace_begin_tracepoint *last_begin =
+               util_dynarray_last_ptr(&utctx->begin_tracepoints, struct u_trace_begin_tracepoint);
+
+            struct hash_table *ranges = &utctx->tracepoint_ranges;
+            util_dynarray_foreach(&utctx->begin_tracepoints, struct u_trace_begin_tracepoint, begin) {
+               const struct u_trace_event *begin_event = begin->event;
+               struct hash_entry *entry = _mesa_hash_table_search(ranges, begin_event);
+               struct u_trace_tracepoint_range *range = NULL;
+               if (entry) {
+                  range = entry->data;
+               } else {
+                  range = calloc(1, sizeof(struct u_trace_tracepoint_range));
+                  _mesa_hash_table_init(&range->child_ranges, NULL, u_trace_event_fuzzy_hash, u_trace_event_fuzzy_equals);
+
+                  uint32_t event_size = sizeof(struct u_trace_event) + begin_event->payload_size;
+                  void *event_copy = malloc(event_size);
+                  memcpy(event_copy, begin_event, event_size);
+
+                  _mesa_hash_table_insert(ranges, event_copy, range);
+               }
+               if (begin == last_begin) {
+                  range->duration_ns += timestamp - begin->timestamp_ns;
+                  range->count++;
+               }
+               ranges = &range->child_ranges;
+            }
+
+            assert(utctx->begin_tracepoints.size);
+            utctx->begin_tracepoints.size -= sizeof(struct u_trace_begin_tracepoint);
+         }
+      }
+
+      int32_t delta;
+
+      if (!utctx->first_time_ns)
+         utctx->first_time_ns = timestamp;
+
+      if (timestamp != U_TRACE_NO_TIMESTAMP) {
+         delta = utctx->last_time_ns ? timestamp - utctx->last_time_ns : 0;
+         utctx->last_time_ns = timestamp;
+      } else {
+         /* we skipped recording the timestamp, so it should be
+          * the same as last msg:
+          */
+         timestamp = utctx->last_time_ns;
+         delta = 0;
+      }
+
+      const void *indirect_data = NULL;
+      if (event->indirect.buffer_index != UINT32_MAX &&
+          (utctx->enabled_traces & U_TRACE_TYPE_INDIRECTS)) {
+            void *indirect_buffer =
+               u_trace_buffer_view_get_buffer(ut, u_trace_buffer_list_indirect, event->indirect);
+            indirect_data = utctx->get_data(utctx, indirect_buffer, event->indirect.offset,
+                                            event->tp->indirect_sz);
+      } else if (event->tp->indirect_sz) {
+         indirect_data = utctx->dummy_indirect_data;
+      }
+
+      if (utctx->out) {
+         simple_mtx_lock(&shared_out_mtx);
+         utctx->out_printer->event(utctx, event, timestamp, delta, indirect_data);
+         simple_mtx_unlock(&shared_out_mtx);
+      }
+#ifdef HAVE_PERFETTO
+      if (event->tp->perfetto &&
+          (p_atomic_read_relaxed(&utctx->enabled_traces) &
+           U_TRACE_TYPE_PERFETTO_ACTIVE)) {
+         event->tp->perfetto(utctx->pctx, timestamp, event->tp->tp_idx, flush->flush_data,
+                             event->payload, indirect_data);
+      }
+#endif
+
+      utctx->event_nr++;
+   }
+
+   if (utctx->out) {
+      simple_mtx_lock(&shared_out_mtx);
+      utctx->out_printer->end_of_batch(utctx);
+      simple_mtx_unlock(&shared_out_mtx);
+   }
+
+   utctx->batch_nr++;
+   utctx->last_time_ns = 0;
+   utctx->first_time_ns = 0;
+
+   if (flush->eof) {
+      if (utctx->out) {
+         simple_mtx_lock(&shared_out_mtx);
+         utctx->out_printer->end_of_frame(utctx);
+         simple_mtx_unlock(&shared_out_mtx);
+      }
+      utctx->frame_nr++;
+      utctx->start_of_frame = true;
+
+      if (utctx->enabled_traces & U_TRACE_TYPE_RANGES) {
+         utctx->accumulated_frame_count++;
+         fprintf(stderr, "TRACEPOINT RANGE STATS:\n");
+         print_ranges(utctx, &utctx->tracepoint_ranges, 0);
+      }
+   }
+
+   if (utctx->out)
+      flush_output(utctx);
+}
+
+static void
+cleanup_chunk(void *job, void *gdata, int thread_index)
+{
+   u_trace_flush_destroy(job);
+}
+
+void
+u_trace_context_process(struct u_trace_context *utctx, bool eof)
+{
+   if (!util_dynarray_num_elements(&utctx->flushed_traces, struct u_trace_flush *))
+      return;
+
+   /* There are flushes to process: create the queue now if the context
+    * was created with nothing to trace.
+    */
+   queue_init(utctx);
+
+   if (!util_queue_is_initialized(&utctx->queue)) {
+      util_dynarray_foreach(&utctx->flushed_traces, struct u_trace_flush *, flush)
+         u_trace_flush_destroy(*flush);
+      util_dynarray_clear(&utctx->flushed_traces);
+      return;
+   }
+
+   struct u_trace_flush *last =
+      *util_dynarray_last_ptr(&utctx->flushed_traces, struct u_trace_flush *);
+   last->eof = eof;
+
+   util_dynarray_foreach(&utctx->flushed_traces, struct u_trace_flush *, _flush) {
+      struct u_trace_flush *flush = *_flush;
+      util_queue_add_job(&utctx->queue, flush, &flush->fence, process_flush,
+                         cleanup_chunk, TIMESTAMP_BUF_SIZE);
+   }
+
+   util_dynarray_clear(&utctx->flushed_traces);
+}
+
+static linear_ctx *
+u_trace_get_linear_alloc(struct u_trace *ut)
+{
+   if (!ut->linear_alloc) {
+      ut->linear_alloc = linear_context(NULL);
+   }
+
+   return ut->linear_alloc;
+}
+
+void
+u_trace_init(struct u_trace *ut, struct u_trace_context *utctx)
+{
+   memset(ut, 0, sizeof(struct u_trace));
+   ut->utctx = utctx;
+   ut->last_timestamp.buffer_index = UINT32_MAX;
+   ut->events = UTIL_DYNARRAY_INIT;
+   ut->buffers[0] = UTIL_DYNARRAY_INIT;
+   ut->buffers[1] = UTIL_DYNARRAY_INIT;
+}
+
+void
+u_trace_move(struct u_trace *dst, struct u_trace *src)
+{
+   u_trace_fini(dst);
+   memcpy(dst, src, sizeof(struct u_trace));
+   u_trace_init(src, dst->utctx);
+}
+
+void
+u_trace_fini(struct u_trace *ut)
+{
+   for (uint32_t i = 0; i < ARRAY_SIZE(ut->buffers); i++) {
+      util_dynarray_foreach(&ut->buffers[i], struct u_trace_buffer, buffer) {
+         ut->utctx->delete_buffer(ut->utctx, buffer->buffer);
+      }
+      util_dynarray_fini(&ut->buffers[i]);
+   }
+
+   linear_free_context(ut->linear_alloc);
+   ut->linear_alloc = NULL;
+   ut->last_timestamp.buffer_index = UINT32_MAX;
+   util_dynarray_fini(&ut->events);
+}
+
+bool
+u_trace_has_points(struct u_trace *ut)
+{
+   return !!u_trace_num_events(ut);
+}
+
+uint32_t
+u_trace_num_events(struct u_trace *ut)
+{
+   return util_dynarray_num_elements(&ut->events, struct u_trace_event *);
+}
+
+static struct u_trace_buffer_view
+alloc_device_memory(struct u_trace *ut, enum u_trace_buffer_list_index list_index, uint32_t size)
+{
+   struct util_dynarray *list = &ut->buffers[list_index];
+
+   size = align(size, 8);
+
+   uint32_t buffer_count = util_dynarray_num_elements(list, struct u_trace_buffer);
+   if (buffer_count) {
+      struct u_trace_buffer *last = util_dynarray_last_ptr(list, struct u_trace_buffer);
+      if (last->alloc_offset + size <= last->size) {
+         struct u_trace_buffer_view view = {
+            .buffer_index = buffer_count - 1,
+            .offset = last->alloc_offset,
+         };
+         last->alloc_offset += size;
+         return view;
+      }
+   }
+
+   uint32_t min_size = TIMESTAMP_BUF_SIZE;
+   if (list_index == u_trace_buffer_list_timestamps)
+      min_size *= ut->utctx->timestamp_size_bytes;
+   else
+      min_size *= ut->utctx->max_indirect_size_bytes;
+
+   uint32_t alloc_size = MAX2(size, min_size);
+
+   struct u_trace_buffer new_buffer = {
+      .buffer = ut->utctx->create_buffer(ut->utctx, alloc_size),
+      .size = alloc_size,
+   };
+
+   util_dynarray_append(list, new_buffer);
+
+   return alloc_device_memory(ut, list_index, size);
+}
+
+/* Release the memory that was allocated most recently back to the allocator. */
+static void
+release_last_device_memory(struct u_trace *ut, enum u_trace_buffer_list_index list_index, struct u_trace_buffer_view view)
+{
+   struct util_dynarray *list = &ut->buffers[list_index];
+
+   ASSERTED uint32_t buffer_count = util_dynarray_num_elements(list, struct u_trace_buffer);
+   assert(view.buffer_index == buffer_count - 1);
+
+   struct u_trace_buffer *last = util_dynarray_last_ptr(list, struct u_trace_buffer);
+   last->alloc_offset = view.offset;
+}
+
+/* Return the byte range of timestamps used by the events from `first`
+ * until the timestamp buffer changes or `end` is reached.
+ */
+static void
+get_buffer_timestamp_span(struct u_trace *ut, uint32_t first, uint32_t end,
+                          uint32_t *start_B, uint32_t *size_B)
+{
+   struct u_trace_event *e = *util_dynarray_element(&ut->events, struct u_trace_event *, first);
+   uint32_t buffer_index = e->timestamp.buffer_index;
+   uint32_t lo = e->timestamp.offset, hi = e->timestamp.offset;
+
+   for (uint32_t i = first + 1; i < end; i++) {
+      e = *util_dynarray_element(&ut->events, struct u_trace_event *, i);
+      if (e->timestamp.buffer_index != buffer_index)
+         break;
+      lo = MIN2(lo, e->timestamp.offset);
+      hi = MAX2(hi, e->timestamp.offset);
+   }
+
+   *start_B = lo;
+   *size_B = hi - lo + ut->utctx->timestamp_size_bytes;
+}
+
+void
+u_trace_clone_append(struct u_trace_iterator begin_it,
+                     struct u_trace_iterator end_it,
+                     struct u_trace *into,
+                     void *cmdstream,
+                     u_trace_copy_buffer copy_buffer)
+{
+   assert(begin_it.ut == end_it.ut);
+   struct u_trace *from = begin_it.ut;
+
+   if (u_trace_iterator_equal(begin_it, end_it))
+      return;
+
+   linear_ctx *linear_alloc = u_trace_get_linear_alloc(into);
+
+   struct u_trace_buffer_view src_timestamp = {0}, dst_timestamp = {0}, src_indirect = {0}, dst_indirect = {0};
+   src_timestamp.buffer_index = UINT32_MAX;
+   src_indirect.buffer_index = UINT32_MAX;
+   uint32_t range_start_B = 0;
+
+   for (uint32_t i = begin_it.event_idx; i < end_it.event_idx; i++) {
+      struct u_trace_event *src_event = *util_dynarray_element(&from->events, struct u_trace_event *, i);
+
+      if (src_timestamp.buffer_index != src_event->timestamp.buffer_index) {
+         src_timestamp = src_event->timestamp;
+         struct u_trace_buffer *src_buffer =
+            util_dynarray_element(&from->buffers[u_trace_buffer_list_timestamps], struct u_trace_buffer, src_event->timestamp.buffer_index);
+         uint32_t size_B;
+         get_buffer_timestamp_span(from, i, end_it.event_idx, &range_start_B, &size_B);
+         dst_timestamp = alloc_device_memory(into, u_trace_buffer_list_timestamps, size_B);
+
+         void *dst_buffer = u_trace_buffer_view_get_buffer(into, u_trace_buffer_list_timestamps, dst_timestamp);
+         copy_buffer(into->utctx, cmdstream, src_buffer->buffer, range_start_B, dst_buffer, dst_timestamp.offset, size_B);
+      }
+
+      if (src_event->indirect.buffer_index != UINT32_MAX &&
+          src_indirect.buffer_index != src_event->indirect.buffer_index) {
+         src_indirect = src_event->indirect;
+         struct u_trace_buffer *src_buffer =
+            util_dynarray_element(&from->buffers[u_trace_buffer_list_indirect], struct u_trace_buffer, src_event->indirect.buffer_index);
+         dst_indirect = alloc_device_memory(into, u_trace_buffer_list_indirect, src_buffer->size);
+
+         void *dst_buffer = u_trace_buffer_view_get_buffer(into, u_trace_buffer_list_indirect, dst_indirect);
+         copy_buffer(into->utctx, cmdstream, src_buffer->buffer, 0, dst_buffer, dst_indirect.offset, src_buffer->size);
+      }
+
+      struct u_trace_event *dst_event = linear_alloc_child(linear_alloc, sizeof(struct u_trace_event) + src_event->payload_size);
+      memcpy(dst_event, src_event, sizeof(struct u_trace_event) + src_event->payload_size);
+      dst_event->timestamp.buffer_index = dst_timestamp.buffer_index;
+      dst_event->timestamp.offset = dst_timestamp.offset + src_event->timestamp.offset - range_start_B;
+      if (src_event->indirect.buffer_index != UINT32_MAX) {
+         dst_event->indirect.buffer_index = dst_indirect.buffer_index;
+         dst_event->indirect.offset = dst_indirect.offset + src_event->indirect.offset;
+      }
+
+      util_dynarray_append(&into->events, dst_event);
+   }
+}
+
+uint32_t
+u_trace_clone_append_copy_count(struct u_trace_iterator begin_it,
+                                struct u_trace_iterator end_it)
+{
+   assert(begin_it.ut == end_it.ut);
+   struct u_trace *from = begin_it.ut;
+
+   struct u_trace_buffer_view src_timestamp = {0}, src_indirect = {0};
+   src_timestamp.buffer_index = UINT32_MAX;
+   src_indirect.buffer_index = UINT32_MAX;
+
+   uint32_t copy_count = 0;
+
+   for (uint32_t i = begin_it.event_idx; i < end_it.event_idx; i++) {
+      struct u_trace_event *src_event = *util_dynarray_element(&from->events, struct u_trace_event *, i);
+
+      if (src_timestamp.buffer_index != src_event->timestamp.buffer_index) {
+         src_timestamp.buffer_index = src_event->timestamp.buffer_index;
+         copy_count++;
+      }
+
+      if (src_event->indirect.buffer_index != UINT32_MAX &&
+          src_indirect.buffer_index != src_event->indirect.buffer_index) {
+         src_indirect.buffer_index = src_event->indirect.buffer_index;
+         copy_count++;
+      }
+   }
+
+   return copy_count;
+}
+
+void
+u_trace_disable_event_range(struct u_trace_iterator begin_it,
+                            struct u_trace_iterator end_it)
+{
+   assert(begin_it.ut == end_it.ut);
+   struct u_trace *ut = begin_it.ut;
+
+   for (uint32_t i = begin_it.event_idx; i < end_it.event_idx; i++) {
+      struct u_trace_event *event = *util_dynarray_element(&ut->events, struct u_trace_event *, i);
+      event->tp = NULL;
+   }
+}
+
+/**
+ * Append a trace event, returning pointer to buffer of tp->payload_sz
+ * to be filled in with trace payload.  Called by generated tracepoint
+ * functions.
+ */
+void *
+u_trace_appendv(struct u_trace *ut,
+                void *cs,
+                const struct u_tracepoint *tp,
+                unsigned variable_sz,
+                unsigned n_indirects,
+                const struct u_trace_address *addresses,
+                const uint8_t *indirect_sizes_B)
+{
+   assert(tp->payload_sz == ALIGN_NPOT(tp->payload_sz, 8));
+
+   unsigned payload_sz = ALIGN_NPOT(tp->payload_sz + variable_sz, 8);
+   struct u_trace_event *event =
+      linear_alloc_child(u_trace_get_linear_alloc(ut),
+                         sizeof(struct u_trace_event) + payload_sz);
+   event->tp = tp;
+   event->payload_size = payload_sz;
+
+   struct u_trace_buffer_view dst_timestamp =
+      alloc_device_memory(ut, u_trace_buffer_list_timestamps, ut->utctx->timestamp_size_bytes);
+   void *dst_timestamp_buffer =
+      u_trace_buffer_view_get_buffer(ut, u_trace_buffer_list_timestamps, dst_timestamp);
+
+   /* record a timestamp for the trace: */
+   bool new_timestamp = ut->utctx->record_timestamp(
+      ut, cs, dst_timestamp_buffer, dst_timestamp.offset, tp->flags);
+
+   event->timestamp = dst_timestamp;
+   if (new_timestamp) {
+      ut->last_timestamp = dst_timestamp;
+   } else {
+      assert(ut->last_timestamp.buffer_index != UINT32_MAX);
+      event->timestamp = ut->last_timestamp;
+      release_last_device_memory(ut, u_trace_buffer_list_timestamps, dst_timestamp);
+   }
+
+   event->indirect.buffer_index = UINT32_MAX;
+   if ((ut->utctx->enabled_traces & U_TRACE_TYPE_INDIRECTS) && ut->utctx->max_indirect_size_bytes && n_indirects) {
+      struct u_trace_buffer_view dst_indirect =
+         alloc_device_memory(ut, u_trace_buffer_list_indirect, ut->utctx->max_indirect_size_bytes);
+      void *dst_indirect_buffer =
+         u_trace_buffer_view_get_buffer(ut, u_trace_buffer_list_indirect, dst_indirect);
+
+      event->indirect = dst_indirect;
+
+      uint64_t dst_offset = 0;
+      for (unsigned i = 0; i < n_indirects; i++) {
+         ut->utctx->capture_data(
+            ut, cs, dst_indirect_buffer, dst_indirect.offset + dst_offset,
+            addresses[i].bo, addresses[i].offset, indirect_sizes_B[i]);
+         dst_offset += indirect_sizes_B[i];
+      }
+
+   }
+
+   util_dynarray_append(&ut->events, event);
+
+   return event->payload;
+}
+
+void
+u_trace_flush(struct u_trace *ut,
+              void *flush_data,
+              uint32_t frame_nr,
+              bool free_data)
+{
+   struct u_trace_context *utctx = ut->utctx;
+
+   if (!u_trace_should_process(utctx) && !u_trace_has_points(ut) &&
+       (!free_data ||
+        (!util_queue_is_initialized(&utctx->queue) &&
+         !util_dynarray_num_elements(&utctx->flushed_traces,
+                                     struct u_trace_flush *)))) {
+      if (free_data && utctx->delete_flush_data)
+         utctx->delete_flush_data(utctx, flush_data);
+      u_trace_fini(ut);
+      u_trace_init(ut, utctx);
+      return;
+   }
+
+   struct u_trace_flush *flush = calloc(1, sizeof(struct u_trace_flush));
+   util_queue_fence_init(&flush->fence);
+   flush->flush_data = flush_data;
+   flush->free_flush_data = free_data;
+   flush->frame_nr = frame_nr;
+   u_trace_move(&flush->trace, ut);
+   util_dynarray_append(&ut->utctx->flushed_traces, flush);
+}

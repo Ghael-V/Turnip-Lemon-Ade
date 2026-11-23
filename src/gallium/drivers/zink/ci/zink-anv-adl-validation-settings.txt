@@ -1,0 +1,154 @@
+# Please include a comment with the log message and a testcase triggering each
+# VUID at the bottom of the file.
+khronos_validation.message_id_filter = VUID-VkPhysicalDeviceProperties2-pNext-pNext,VUID-VkDeviceCreateInfo-pNext-pNext,VUID-RuntimeSpirv-Location-06272,07753,VUID-RuntimeSpirv-OpEntryPoint-08743,10909,VUID-vkDestroyDevice-device-05137,08879,VUID-VkDeviceAddress-size-11364,VUID-VkStridedDeviceAddressRangeKHR-address-11365,VUID-StandaloneSpirv-OpEntryPoint-08721,VUID-VkImageDrmFormatModifierListCreateInfoEXT-pDrmFormatModifiers-02263,VUID-VkMemoryAllocateInfo-pNext-12539,VUID-vkCmdBeginQuery-queryPool-01922,VUID-vkDestroyShaderEXT-shader-08482,VUID-vkGetImageSubresourceLayout-image-07790,VUID-VkPresentInfoKHR-pImageIndices-01430,UNASSIGNED-vkAllocateMemory-maxMemoryAllocationSize,VUID-VkImageCreateInfo-pNext-00990,VUID-VkSparseMemoryBind-resourceOffset-09491
+khronos_validation.report_flags = error
+khronos_validation.debug_action = VK_DBG_LAYER_ACTION_LOG_MSG,VK_DBG_LAYER_ACTION_BREAK
+VK_LAYER_ENABLES=VK_VALIDATION_FEATURE_ENABLE_DEBUG_PRINTF_EXT
+khronos_validation.printf_buffer_size = 40960
+khronos_validation.printf_to_stdout = true
+khronos_validation.log_filename = stdout
+
+# VUID-VkPhysicalDeviceProperties2-pNext-pNext
+# VUID-VkDeviceCreateInfo-pNext-pNext
+# never error due to unrecognized extensions
+
+
+# KHR-GL46.geometry_shader.limits.max_output_components
+#
+# [ VUID-RuntimeSpirv-Location-06272 ] Object 0: handle = 0x3a6cbb0000000025,
+# type = VK_OBJECT_TYPE_SHADER_MODULE; | MessageID = 0xa3614f8b | Invalid Pipeline
+# CreateInfo State: Fragment shader exceeds
+# VkPhysicalDeviceLimits::maxFragmentInputComponents of 116 components by 4
+# components The Vulkan spec states: The sum of Location and the number of
+# locations the variable it decorates consumes must be less than or equal to the
+# value for the matching {ExecutionModel} defined in Shader Input and Output
+# Locations
+# (https://registry.khronos.org/vulkan/specs/latest/html/vkspec.html#VUID-RuntimeSpirv-Location-06272)
+
+
+# KHR-GL46.sample_variables.mask.rgba8i.samples_8.mask_3
+#
+# [ VUID-vkCmdDrawMultiIndexedEXT-format-07753 ] Object 0: handle =
+# 0x535b660000000043, type = VK_OBJECT_TYPE_DESCRIPTOR_SET; | MessageID =
+# 0xd35852d3 | vkCmdDrawMultiIndexedEXT: Descriptor set VkDescriptorSet
+# 0x535b660000000043[] in binding #128 index 0 requires SINT component type, but
+# bound descriptor format is VK_FORMAT_R8G8B8A8_UNORM (VkImageView
+# 0x9638f80000000036[]). The Vulkan spec states: If a VkImageView is accessed as a
+# result of this command, then the image view's format must match the numeric
+# format from the Sampled Type operand of the OpTypeImage as described in the
+# SPIR-V Sampled Type column of the Interpretation of Numeric Format table
+# (https://registry.khronos.org/vulkan/specs/latest/html/vkspec.html#VUID-vkCmdDrawMultiIndexedEXT-format-07753)
+#
+# https://gitlab.khronos.org/Tracker/vk-gl-cts/-/issues/4488
+
+
+# KHR-Single-GL46.enhanced_layouts.varying_locations
+#
+# VUID-RuntimeSpirv-OpEntryPoint-08743(ERROR / SPEC): msgNum: -1986897773 -
+# Validation Error: [ VUID-RuntimeSpirv-OpEntryPoint-08743 ]
+# vkCreateGraphicsPipelines(): pCreateInfos[0] VK_SHADER_STAGE_FRAGMENT_BIT declared input at
+# Location 1 Comonent 2 but it is not an Output declared in VK_SHADER_STAGE_VERTEX_BIT
+# The Vulkan spec states: Any user-defined variables shared between the OpEntryPoint of two shader stages,
+# and declared with Input as its {StorageClass} for the subsequent shader stage,
+# must have all Location slots and Component words declared in the preceding shader stage's
+# OpEntryPoint with Output as the {StorageClass}
+# (https://registry.khronos.org/vulkan/specs/latest/html/vkspec.html#VUID-RuntimeSpirv-OpEntryPoint-08743)
+#
+# VVL bug https://github.com/KhronosGroup/Vulkan-ValidationLayers/issues/5735
+
+# VUID-VkDeviceAddress-size-11364,VUID-VkStridedDeviceAddressRangeKHR-address-11365
+# needs vk extension
+
+# spec@!opengl 2.0@vertex-program-two-side enabled front back2
+#
+# Validation Error: [ VUID-StandaloneSpirv-OpEntryPoint-08721 ] | MessageID = 0xed5eb645
+# vkCreateShaderModule(): pCreateInfo->pCode (spirv-val produced an error):
+# Entry-point has conflicting input location assignment at location 1, component 0
+#   OpEntryPoint Fragment %main "main" %14 %18 %19 %20 %gl_FragData_0_ %gl_FragData_1_ %gl_FragData_2_ %gl_FragData_3_ %gl_FragData_4_ %gl_FragData_5_ %gl_FragData_6_ %gl_FragData_7_ %34 %gl_FrontFacing
+#
+# Command to reproduce:
+# 	spirv-val <input.spv> --relax-block-layout --uniform-buffer-standard-layout --scalar-block-layout --workgroup-scalar-block-layout --allow-localsizeid --allow-offset-texture-operand --allow-vulkan-32-bit-bitwise --target-env vulkan1.4
+#
+# The Vulkan spec states: Each OpEntryPoint must not have more than one Input variable assigned the same Component word inside a Location slot, either explicitly or implicitly (https://docs.vulkan.org/spec/latest/appendices/spirvenv.html#VUID-StandaloneSpirv-OpEntryPoint-08721)
+
+# spec@!opengl 1.1@depthstencil-default_fb-readpixels-float-and-ushort
+#
+# Validation Error: [ VUID-VkImageDrmFormatModifierListCreateInfoEXT-pDrmFormatModifiers-02263 ] | MessageID = 0x8a429e8a
+# vkCreateImage(): pCreateInfo->pNext<VkImageDrmFormatModifierListCreateInfoEXT>.pDrmFormatModifiers[4] (72057594037927944) is not compatible with the rest of the VkImageCreateInfo, vkGetPhysicalDeviceImageFormatProperties2 returned back VK_ERROR_FORMAT_NOT_SUPPORTED.
+# format (VK_FORMAT_B8G8R8A8_UNORM)
+# type (VK_IMAGE_TYPE_2D)
+# tiling (VK_IMAGE_TILING_DRM_FORMAT_MODIFIER_EXT)
+# usage (VK_IMAGE_USAGE_2_TRANSFER_SRC_BIT_KHR|VK_IMAGE_USAGE_2_TRANSFER_DST_BIT_KHR|VK_IMAGE_USAGE_2_SAMPLED_BIT_KHR|VK_IMAGE_USAGE_2_COLOR_ATTACHMENT_BIT_KHR|VK_IMAGE_USAGE_2_INPUT_ATTACHMENT_BIT_KHR|VK_IMAGE_USAGE_2_ATTACHMENT_FEEDBACK_LOOP_BIT_EXT)
+# flags (VK_IMAGE_CREATE_2_MUTABLE_FORMAT_BIT_KHR)
+# pNext chain: VkImageCreateInfo::pNext -> [VkImageDrmFormatModifierListCreateInfoEXT] -> [VkExternalMemoryImageCreateInfo] -> [VkImageFormatListCreateInfo].
+# The Vulkan spec states: Each modifier in pDrmFormatModifiers must be compatible with the parameters in VkImageCreateInfo and its pNext chain, as determined by querying VkPhysicalDeviceImageFormatInfo2 extended with VkPhysicalDeviceImageDrmFormatModifierInfoEXT (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-VkImageDrmFormatModifierListCreateInfoEXT-pDrmFormatModifiers-02263)
+
+# hiz@hiz-depth-read-window-stencil1
+#
+# Validation Error: [ VUID-VkMemoryAllocateInfo-pNext-12539 ] | MessageID = 0xf2edc553
+# vkAllocateMemory(): pAllocateInfo->pNext<VkExportMemoryAllocateInfo>.handleTypes (VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT|VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT) includes VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT, which is not reported as exportable for the dedicated VkImage 0x1b000000001b.
+# Objects: 1
+#     [0] VkImage 0x1b000000001b
+
+# spec@arb_pipeline_statistics_query@arb_pipeline_statistics_query-clip
+#
+# Validation Error: [ VUID-vkCmdBeginQuery-queryPool-01922 ] | MessageID = 0xeeb9cdf3
+# vkCmdBeginQuery(): query 0 in VkQueryPool 0x2c000000002c has the same queryType (VK_QUERY_TYPE_PIPELINE_STATISTICS) as the active query 0 from VkQueryPool 0x2b000000002b (both are using index 0) in VkCommandBuffer 0x5602f44e84d0[zink cmdbuf].
+# The Vulkan spec states: queryPool must have been created with a queryType that differs from that of any queries that are active within commandBuffer (https://docs.vulkan.org/spec/latest/chapters/queries.html#VUID-vkCmdBeginQuery-queryPool-01922)
+# Objects: 3
+#     [0] VkCommandBuffer 0x5602f44e84d0[zink cmdbuf]
+#     [1] VkQueryPool 0x2c000000002c
+#     [2] VkQueryPool 0x2b000000002b
+
+# spec@!opengl 1.1@longprim
+#
+# Validation Error: [ VUID-vkDestroyShaderEXT-shader-08482 ] | MessageID = 0xde5d1fa3
+# vkDestroyShaderEXT(): shader can't be called on VkShaderEXT 0x2c000000002c that is currently in use by VkCommandBuffer 0x56376ccae990[zink cmdbuf].
+# The Vulkan spec states: All submitted commands that refer to shader must have completed execution (https://docs.vulkan.org/spec/latest/chapters/shaders.html#VUID-vkDestroyShaderEXT-shader-08482)
+
+# spec@egl 1.4@egl-ext_egl_image_storage
+#
+# Validation Error: [ VUID-vkGetImageSubresourceLayout-image-07790 ] | MessageID = 0xb61daa51
+# vkGetImageSubresourceLayout(): image was created with tiling VK_IMAGE_TILING_OPTIMAL.
+# The Vulkan spec states: image must have been created with tiling equal to VK_IMAGE_TILING_LINEAR or VK_IMAGE_TILING_DRM_FORMAT_MODIFIER_EXT (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-vkGetImageSubresourceLayout-image-07790)
+# Objects: 1
+#    [0] VkImage 0x440000000044
+
+# spec@nv_shader_atomic_float@execution@ssbo-atomicadd-float
+#
+# Validation Error: [ VUID-VkPresentInfoKHR-pImageIndices-01430 ] | MessageID = 0x48ad24c6
+# vkQueuePresentKHR(): pPresentInfo images passed to present must be in layout VK_IMAGE_LAYOUT_PRESENT_SRC_KHR or VK_IMAGE_LAYOUT_SHARED_PRESENT_KHR but VkImage 0x3f000000003f is in VK_IMAGE_LAYOUT_GENERAL.
+# The Vulkan spec states: Each element of pImageIndices must be the index of a presentable image acquired from the swapchain specified by the corresponding element of the pSwapchains array, and the presented image subresource must be in the VK_IMAGE_LAYOUT_PRESENT_SRC_KHR or VK_IMAGE_LAYOUT_SHARED_PRESENT_KHR layout at the time the operation is executed on a VkDevice (https://docs.vulkan.org/spec/latest/chapters/VK_KHR_surface/wsi.html#VUID-VkPresentInfoKHR-pImageIndices-01430)
+# Objects: 1
+#     [0] VkImage 0x3f000000003f
+#
+# Probe color at (1,1)
+#   Expected: 0.840188 0.394383 0.783099
+#   Observed: 0.501961 0.501961 0.501961
+#   (test failed for window 2)
+
+# spec@!opengl 1.1@max-texture-size
+#
+# Validation Error: [ UNASSIGNED-vkAllocateMemory-maxMemoryAllocationSize ] | MessageID = 0x9db21593
+# vkAllocateMemory(): pAllocateInfo->allocationSize (4294967296) is larger than maxMemoryAllocationSize (2147483648). While this might work locally on your machine, there are many external factors each platform has that is used to determine this limit. You should receive VK_ERROR_OUT_OF_DEVICE_MEMORY from this call, but even if you do not, it is highly advised from all hardware vendors to not ignore this limit.
+
+# spec@ext_image_dma_buf_import@ext_image_dma_buf_import-modifiers
+#
+# Validation Error: [ VUID-VkImageCreateInfo-pNext-00990 ] | MessageID = 0x466ca6a5
+# vkCreateImage(): pCreateInfo The handle type (VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT) with VkImageCreateInfo
+# format (VK_FORMAT_B8G8R8A8_UNORM)
+# type (VK_IMAGE_TYPE_2D)
+# tiling (VK_IMAGE_TILING_DRM_FORMAT_MODIFIER_EXT)
+# usage (VK_IMAGE_USAGE_2_TRANSFER_SRC_BIT_KHR|VK_IMAGE_USAGE_2_TRANSFER_DST_BIT_KHR|VK_IMAGE_USAGE_2_SAMPLED_BIT_KHR|VK_IMAGE_USAGE_2_COLOR_ATTACHMENT_BIT_KHR|VK_IMAGE_USAGE_2_INPUT_ATTACHMENT_BIT_KHR|VK_IMAGE_USAGE_2_ATTACHMENT_FEEDBACK_LOOP_BIT_EXT)
+# flags (VK_IMAGE_CREATE_2_MUTABLE_FORMAT_BIT_KHR)
+# is not a supported combination of parameters, and vkGetPhysicalDeviceImageFormatProperties2 returned VK_ERROR_FORMAT_NOT_SUPPORTED.
+# The Vulkan spec states: If the pNext chain includes a VkExternalMemoryImageCreateInfo structure, its handleTypes member must only contain bits that are also in VkExternalImageFormatProperties::externalMemoryProperties.compatibleHandleTypes, as returned by vkGetPhysicalDeviceImageFormatProperties2 with format, imageType, tiling, usage, and flags equal to those in this structure, and with a VkPhysicalDeviceExternalImageFormatInfo structure included in the pNext chain, with a handleType equal to any one of the handle types specified in VkExternalMemoryImageCreateInfo::handleTypes (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-VkImageCreateInfo-pNext-00990)
+
+# spec@arb_sparse_buffer@basic
+#
+# Validation Error: [ VUID-VkSparseMemoryBind-resourceOffset-09491 ] | MessageID = 0xc4187293
+# vkQueueBindSparse(): pBindInfo[0].pBufferBinds[0].buffer (VkBuffer 0x1f000000001f) is being bound, but pBindInfo[0].pBufferBinds[0].pBinds[0].size (32768) is not a multiple of required memory alignment (65536).
+# The Vulkan spec states: If the resource being bound is a VkBuffer, resourceOffset, memoryOffset and size must be an integer multiple of the alignment of the VkMemoryRequirements structure returned from a call to vkGetBufferMemoryRequirements with the buffer resource (https://docs.vulkan.org/spec/latest/chapters/sparsemem.html#VUID-VkSparseMemoryBind-resourceOffset-09491)
+# Objects: 2
+#     [0] VkDeviceMemory 0x230000000023
+#     [1] VkBuffer 0x1f000000001f

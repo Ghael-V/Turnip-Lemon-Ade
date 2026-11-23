@@ -1,0 +1,175 @@
+# Please include a comment with the log message and a testcase triggering each
+# VUID at the bottom of the file.
+khronos_validation.message_id_filter = VUID-VkPhysicalDeviceProperties2-pNext-pNext,VUID-VkDeviceCreateInfo-pNext-pNext,VUID-RuntimeSpirv-Location-06272,07753,VUID-RuntimeSpirv-OpEntryPoint-08743,10909,VUID-vkDestroyDevice-device-05137,VUID-VkDeviceAddress-size-11364,VUID-VkStridedDeviceAddressRangeKHR-address-11365,VUID-StandaloneSpirv-OpEntryPoint-08721,VUID-VkImageDrmFormatModifierListCreateInfoEXT-pDrmFormatModifiers-02263,VUID-VkMemoryAllocateInfo-pNext-12539,VUID-vkCmdBeginQuery-queryPool-01922,VUID-vkCmdDrawMultiEXT-format-07753,VUID-vkCmdDraw-None-02691,VUID-vkCmdDrawMultiEXT-imageLayout-00344,VUID-vkCmdDrawMultiEXT-viewType-07752,VUID-VkSparseMemoryBind-resourceOffset-09491,VUID-vkCmdDraw-imageLayout-00344,VUID-vkCmdDraw-viewType-07752
+khronos_validation.report_flags = error
+khronos_validation.debug_action = VK_DBG_LAYER_ACTION_LOG_MSG,VK_DBG_LAYER_ACTION_BREAK
+VK_LAYER_ENABLES=VK_VALIDATION_FEATURE_ENABLE_DEBUG_PRINTF_EXT
+khronos_validation.printf_buffer_size = 40960
+khronos_validation.printf_to_stdout = true
+khronos_validation.log_filename = stdout
+
+# VUID-VkPhysicalDeviceProperties2-pNext-pNext
+# VUID-VkDeviceCreateInfo-pNext-pNext
+# never error due to unrecognized extensions
+
+
+# KHR-GL46.geometry_shader.limits.max_output_components
+#
+# [ VUID-RuntimeSpirv-Location-06272 ] Object 0: handle = 0x3a6cbb0000000025,
+# type = VK_OBJECT_TYPE_SHADER_MODULE; | MessageID = 0xa3614f8b | Invalid Pipeline
+# CreateInfo State: Fragment shader exceeds
+# VkPhysicalDeviceLimits::maxFragmentInputComponents of 116 components by 4
+# components The Vulkan spec states: The sum of Location and the number of
+# locations the variable it decorates consumes must be less than or equal to the
+# value for the matching {ExecutionModel} defined in Shader Input and Output
+# Locations
+# (https://registry.khronos.org/vulkan/specs/latest/html/vkspec.html#VUID-RuntimeSpirv-Location-06272)
+
+
+# KHR-GL46.sample_variables.mask.rgba8i.samples_8.mask_3
+#
+# [ VUID-vkCmdDrawMultiIndexedEXT-format-07753 ] Object 0: handle =
+# 0x535b660000000043, type = VK_OBJECT_TYPE_DESCRIPTOR_SET; | MessageID =
+# 0xd35852d3 | vkCmdDrawMultiIndexedEXT: Descriptor set VkDescriptorSet
+# 0x535b660000000043[] in binding #128 index 0 requires SINT component type, but
+# bound descriptor format is VK_FORMAT_R8G8B8A8_UNORM (VkImageView
+# 0x9638f80000000036[]). The Vulkan spec states: If a VkImageView is accessed as a
+# result of this command, then the image view's format must match the numeric
+# format from the Sampled Type operand of the OpTypeImage as described in the
+# SPIR-V Sampled Type column of the Interpretation of Numeric Format table
+# (https://registry.khronos.org/vulkan/specs/latest/html/vkspec.html#VUID-vkCmdDrawMultiIndexedEXT-format-07753)
+#
+# https://gitlab.khronos.org/Tracker/vk-gl-cts/-/issues/4488
+
+
+# KHR-Single-GL46.enhanced_layouts.varying_locations
+#
+# VUID-RuntimeSpirv-OpEntryPoint-08743(ERROR / SPEC): msgNum: -1986897773 -
+# Validation Error: [ VUID-RuntimeSpirv-OpEntryPoint-08743 ]
+# vkCreateGraphicsPipelines(): pCreateInfos[0] VK_SHADER_STAGE_FRAGMENT_BIT declared input at
+# Location 1 Comonent 2 but it is not an Output declared in VK_SHADER_STAGE_VERTEX_BIT
+# The Vulkan spec states: Any user-defined variables shared between the OpEntryPoint of two shader stages,
+# and declared with Input as its {StorageClass} for the subsequent shader stage,
+# must have all Location slots and Component words declared in the preceding shader stage's
+# OpEntryPoint with Output as the {StorageClass}
+# (https://registry.khronos.org/vulkan/specs/latest/html/vkspec.html#VUID-RuntimeSpirv-OpEntryPoint-08743)
+#
+# VVL bug https://github.com/KhronosGroup/Vulkan-ValidationLayers/issues/5735
+
+# VUID-VkDeviceAddress-size-11364,VUID-VkStridedDeviceAddressRangeKHR-address-11365
+# needs vk extension
+
+# spec@!opengl 2.0@vertex-program-two-side enabled front back2
+#
+# Validation Error: [ VUID-StandaloneSpirv-OpEntryPoint-08721 ] | MessageID = 0xed5eb645
+# vkCreateShaderModule(): pCreateInfo->pCode (spirv-val produced an error):
+# Entry-point has conflicting input location assignment at location 1, component 0
+#   OpEntryPoint Fragment %main "main" %14 %18 %19 %20 %gl_FragData_0_ %gl_FragData_1_ %gl_FragData_2_ %gl_FragData_3_ %gl_FragData_4_ %gl_FragData_5_ %gl_FragData_6_ %gl_FragData_7_ %34 %gl_FrontFacing
+#
+# Command to reproduce:
+# 	spirv-val <input.spv> --relax-block-layout --uniform-buffer-standard-layout --scalar-block-layout --workgroup-scalar-block-layout --allow-localsizeid --allow-offset-texture-operand --allow-vulkan-32-bit-bitwise --target-env vulkan1.4
+#
+# The Vulkan spec states: Each OpEntryPoint must not have more than one Input variable assigned the same Component word inside a Location slot, either explicitly or implicitly (https://docs.vulkan.org/spec/latest/appendices/spirvenv.html#VUID-StandaloneSpirv-OpEntryPoint-08721)
+
+# spec@!opengl 1.1@depthstencil-default_fb-readpixels-float-and-ushort
+#
+# Validation Error: [ VUID-VkImageDrmFormatModifierListCreateInfoEXT-pDrmFormatModifiers-02263 ] | MessageID = 0x8a429e8a
+# vkCreateImage(): pCreateInfo->pNext<VkImageDrmFormatModifierListCreateInfoEXT>.pDrmFormatModifiers[4] (72057594037927944) is not compatible with the rest of the VkImageCreateInfo, vkGetPhysicalDeviceImageFormatProperties2 returned back VK_ERROR_FORMAT_NOT_SUPPORTED.
+# format (VK_FORMAT_B8G8R8A8_UNORM)
+# type (VK_IMAGE_TYPE_2D)
+# tiling (VK_IMAGE_TILING_DRM_FORMAT_MODIFIER_EXT)
+# usage (VK_IMAGE_USAGE_2_TRANSFER_SRC_BIT_KHR|VK_IMAGE_USAGE_2_TRANSFER_DST_BIT_KHR|VK_IMAGE_USAGE_2_SAMPLED_BIT_KHR|VK_IMAGE_USAGE_2_COLOR_ATTACHMENT_BIT_KHR|VK_IMAGE_USAGE_2_INPUT_ATTACHMENT_BIT_KHR|VK_IMAGE_USAGE_2_ATTACHMENT_FEEDBACK_LOOP_BIT_EXT)
+# flags (VK_IMAGE_CREATE_2_MUTABLE_FORMAT_BIT_KHR)
+# pNext chain: VkImageCreateInfo::pNext -> [VkImageDrmFormatModifierListCreateInfoEXT] -> [VkExternalMemoryImageCreateInfo] -> [VkImageFormatListCreateInfo].
+# The Vulkan spec states: Each modifier in pDrmFormatModifiers must be compatible with the parameters in VkImageCreateInfo and its pNext chain, as determined by querying VkPhysicalDeviceImageFormatInfo2 extended with VkPhysicalDeviceImageDrmFormatModifierInfoEXT (https://docs.vulkan.org/spec/latest/chapters/resources.html#VUID-VkImageDrmFormatModifierListCreateInfoEXT-pDrmFormatModifiers-02263)
+
+# hiz@hiz-depth-read-window-stencil1
+#
+# Validation Error: [ VUID-VkMemoryAllocateInfo-pNext-12539 ] | MessageID = 0xf2edc553
+# vkAllocateMemory(): pAllocateInfo->pNext<VkExportMemoryAllocateInfo>.handleTypes (VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT|VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT) includes VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT, which is not reported as exportable for the dedicated VkImage 0x1b000000001b.
+# Objects: 1
+#     [0] VkImage 0x1b000000001b
+
+# spec@arb_pipeline_statistics_query@arb_pipeline_statistics_query-clip
+#
+# Validation Error: [ VUID-vkCmdBeginQuery-queryPool-01922 ] | MessageID = 0xeeb9cdf3
+# vkCmdBeginQuery(): query 0 in VkQueryPool 0x2c000000002c has the same queryType (VK_QUERY_TYPE_PIPELINE_STATISTICS) as the active query 0 from VkQueryPool 0x2b000000002b (both are using index 0) in VkCommandBuffer 0x5602f44e84d0[zink cmdbuf].
+# The Vulkan spec states: queryPool must have been created with a queryType that differs from that of any queries that are active within commandBuffer (https://docs.vulkan.org/spec/latest/chapters/queries.html#VUID-vkCmdBeginQuery-queryPool-01922)
+# Objects: 3
+#     [0] VkCommandBuffer 0x5602f44e84d0[zink cmdbuf]
+#     [1] VkQueryPool 0x2c000000002c
+#     [2] VkQueryPool 0x2b000000002b
+
+# spec@arb_sample_shading@builtin-gl-sample-id 0
+#
+# Validation Error: [ VUID-vkCmdDrawMultiEXT-format-07753 ] | MessageID = 0xf4ec9212
+# vkCmdDrawMultiEXT(): the combined image sampler descriptor [VkDescriptorSet 0x390000000039, Set 2, Binding 128, Index 0] requires SINT component type, but bound descriptor format is VK_FORMAT_R8G8B8A8_UINT.
+# The Vulkan spec states: If a VkImageView or VkBufferView is accessed as a result of this command, then the numeric type of the view's format and the Sampled Type operand of the OpTypeImage must match (https://docs.vulkan.org/spec/latest/chapters/drawing.html#VUID-vkCmdDrawMultiEXT-format-07753)
+# Objects: 3
+#     [0] VkShaderEXT 0x360000000036
+#     [1] VkDescriptorSet 0x390000000039
+#     [2] VkImageView 0x2d000000002d
+
+# spec@arb_depth_buffer_float@fbo-stencil-gl_depth32f_stencil8-blit
+#
+# Validation Error: [ VUID-vkCmdDrawMultiEXT-imageLayout-00344 ] | MessageID = 0x84b277bc
+# vkCmdDrawMultiEXT(): Cannot use VkImage 0x1a000000001a (layer 0, mip 0) with specific layout VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL (specified by combined image sampler descriptor [VkDescriptorSet 0x380000000038, Set 2, Binding 128, Index 0]) that doesn't match the previous known layout VK_IMAGE_LAYOUT_ATTACHMENT_FEEDBACK_LOOP_OPTIMAL_EXT.
+# The Vulkan spec states: If an image descriptor is accessed by a shader, the VkImageLayout must match the subresource accessible from the VkImageView as defined by the image layout matching rules (https://docs.vulkan.org/spec/latest/chapters/drawing.html#VUID-vkCmdDrawMultiEXT-imageLayout-00344)
+# Objects: 4
+#     [0] VkPipeline 0x360000000036
+#     [1] VkDescriptorSet 0x380000000038
+#     [2] VkImage 0x1a000000001a
+#     [3] VkImageView 0x2e000000002e
+
+# spec@arb_shader_image_load_store@invalid
+#
+# Validation Error: [ VUID-vkCmdDrawMultiEXT-viewType-07752 ] | MessageID = 0xacde5967
+# vkCmdDrawMultiEXT(): the storage image descriptor [VkDescriptorSet 0x6b000000006b, Set 4, Binding 128, Index 0] VkImageViewType is VK_IMAGE_VIEW_TYPE_2D but the OpTypeImage has (Dim = 3D) and (Arrayed = 0).
+# Either fix in the shader or update the VkImageViewType to VK_IMAGE_VIEW_TYPE_3D.
+# The Vulkan spec states: If a VkImageView is accessed as a result of this command, then the image view's viewType must match the Dim operand of the OpTypeImage as described in Compatibility Between SPIR-V Image Dimensions and Vulkan ImageView Types (https://docs.vulkan.org/spec/latest/chapters/drawing.html#VUID-vkCmdDrawMultiEXT-viewType-07752)
+# Objects: 3
+#     [0] VkPipeline 0x40b000000040b
+#     [1] VkDescriptorSet 0x6b000000006b
+#     [2] VkImageView 0x4030000000403
+
+# spec@arb_shader_image_load_store@invalid
+#
+# Validation Error: [ VUID-vkCmdDraw-None-02691 ] | MessageID = 0x33d5fb49
+# vkCmdDraw(): the storage image descriptor [VkDescriptorSet 0x580000000058, Set 4, Binding 128, Index 0] has VkImageView 0x9280000000928 with format of VK_FORMAT_B10G11R11_UFLOAT_PACK32 which doesn't support VK_FORMAT_FEATURE_STORAGE_IMAGE_ATOMIC_BIT.
+# (supported features: VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_BIT|VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT|VK_FORMAT_FEATURE_2_COLOR_ATTACHMENT_BIT|VK_FORMAT_FEATURE_2_COLOR_ATTACHMENT_BLEND_BIT|VK_FORMAT_FEATURE_2_BLIT_SRC_BIT|VK_FORMAT_FEATURE_2_BLIT_DST_BIT|VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_FILTER_LINEAR_BIT|VK_FORMAT_FEATURE_2_TRANSFER_SRC_BIT|VK_FORMAT_FEATURE_2_TRANSFER_DST_BIT|VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_FILTER_MINMAX_BIT|VK_FORMAT_FEATURE_2_STORAGE_WRITE_WITHOUT_FORMAT_BIT|VK_FORMAT_FEATURE_2_HOST_IMAGE_TRANSFER_BIT).
+# The Vulkan spec states: If a VkImageView is accessed using atomic operations as a result of this command, then the image view's format features must contain VK_FORMAT_FEATURE_STORAGE_IMAGE_ATOMIC_BIT (https://docs.vulkan.org/spec/latest/chapters/drawing.html#VUID-vkCmdDraw-None-02691)
+# Objects: 3
+#    [0] VkShaderEXT 0x92a000000092a
+#    [1] VkDescriptorSet 0x580000000058
+#    [2] VkImageView 0x9280000000928
+
+# spec@arb_sparse_buffer@basic
+#
+# Validation Error: [ VUID-VkSparseMemoryBind-resourceOffset-09491 ] | MessageID = 0xc4187293
+# vkQueueBindSparse(): pBindInfo[0].pBufferBinds[0].buffer (VkBuffer 0x1f000000001f) is being bound, but pBindInfo[0].pBufferBinds[0].pBinds[0].size (32768) is not a multiple of required memory alignment (65536).
+# The Vulkan spec states: If the resource being bound is a VkBuffer, resourceOffset, memoryOffset and size must be an integer multiple of the alignment of the VkMemoryRequirements structure returned from a call to vkGetBufferMemoryRequirements with the buffer resource (https://docs.vulkan.org/spec/latest/chapters/sparsemem.html#VUID-VkSparseMemoryBind-resourceOffset-09491)
+# Objects: 2
+#     [0] VkDeviceMemory 0x230000000023
+#     [1] VkBuffer 0x1f000000001f
+
+# spec@ext_packed_depth_stencil@fbo-depth-gl_depth24_stencil8-blit
+#
+# Validation Error: [ VUID-vkCmdDraw-imageLayout-00344 ] | MessageID = 0xf062410c
+# vkCmdDraw(): Cannot use VkImage 0x1a000000001a (layer 0, mip 0) with specific layout VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL (specified by combined image sampler descriptor [VkDescriptorSet 0x390000000039, Set 2, Binding 128, Index 0]) that doesn't match the previous known layout VK_IMAGE_LAYOUT_ATTACHMENT_FEEDBACK_LOOP_OPTIMAL_EXT.
+# The Vulkan spec states: If an image descriptor is accessed by a shader, the VkImageLayout must match the subresource accessible from the VkImageView as defined by the image layout matching rules (https://docs.vulkan.org/spec/latest/chapters/drawing.html#VUID-vkCmdDraw-imageLayout-00344)
+# Objects: 4
+#     [0] VkPipeline 0x370000000037
+#     [1] VkDescriptorSet 0x390000000039
+#     [2] VkImage 0x1a000000001a
+#     [3] VkImageView 0x2f000000002f
+
+# spec@arb_separate_shader_objects@active sampler conflict
+#
+# Validation Error: [ VUID-vkCmdDraw-viewType-07752 ] | MessageID = 0x73ed4ff5
+# vkCmdDraw(): the combined image sampler descriptor [VkDescriptorSet 0x4e000000004e, Set 2, Binding 128, Index 0] VkImageViewType is VK_IMAGE_VIEW_TYPE_3D but the OpTypeImage has (Dim = 2D) and (Arrayed = 0).
+# Either fix in the shader or update the VkImageViewType to VK_IMAGE_VIEW_TYPE_2D.
+# The Vulkan spec states: If a VkImageView is accessed as a result of this command, then the image view's viewType must match the Dim operand of the OpTypeImage as described in Compatibility Between SPIR-V Image Dimensions and Vulkan ImageView Types (https://docs.vulkan.org/spec/latest/chapters/drawing.html#VUID-vkCmdDraw-viewType-07752)
+# Objects: 3
+#     [0] VkPipeline 0x4c000000004c
+#     [1] VkDescriptorSet 0x4e000000004e
+#     [2] VkImageView 0x2b000000002b

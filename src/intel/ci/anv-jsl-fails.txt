@@ -1,0 +1,5 @@
+dEQP-VK.api.driver_properties.conformance_version,Fail
+
+# VKCTS 1.4.6.2 -> 1.4.7.0 uprev
+# https://gitlab.freedesktop.org/mesa/mesa/-/work_items/16182
+dEQP-VK.wsi.display.create_display_mode,Fail

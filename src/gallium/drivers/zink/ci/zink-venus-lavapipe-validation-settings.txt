@@ -1,0 +1,33 @@
+# Please include a comment with the log message and a testcase triggering each
+# VUID at the bottom of the file.
+khronos_validation.message_id_filter = VUID-VkPhysicalDeviceProperties2-pNext-pNext,VUID-VkDeviceCreateInfo-pNext-pNext,VUID-VkRenderingAttachmentInfo-pNext-pNext,VUID-VkWriteDescriptorSet-descriptorType-00333,VUID-vkCmdDrawIndexed-None-09462
+khronos_validation.report_flags = error
+khronos_validation.debug_action = VK_DBG_LAYER_ACTION_LOG_MSG,VK_DBG_LAYER_ACTION_BREAK
+VK_LAYER_ENABLES=VK_VALIDATION_FEATURE_ENABLE_DEBUG_PRINTF_EXT
+khronos_validation.printf_buffer_size = 40960
+khronos_validation.printf_to_stdout = true
+khronos_validation.log_filename = stdout
+
+# VUID-VkPhysicalDeviceProperties2-pNext-pNext
+# VUID-VkDeviceCreateInfo-pNext-pNext
+# VUID-VkRenderingAttachmentInfo-pNext-pNext
+# never error due to unrecognized extensions
+
+
+# KHR-GL46.sparse_buffer_tests.BufferStorageTest_case_e_all_pages
+#
+# Validation Error: [ VUID-VkWriteDescriptorSet-descriptorType-00333 ] | MessageID = 0xf2fc081c
+# vkUpdateDescriptorSetWithTemplate(): pDescriptorWrites[0].pBufferInfo[0].range (1049362432) is greater than maxStorageBufferRange (134217728) for descriptorType VK_DESCRIPTOR_TYPE_STORAGE_BUFFER.
+# Hint: This can be relaxed if shader64BitIndexing is enabled.
+# The Vulkan spec states: If descriptorType is VK_DESCRIPTOR_TYPE_STORAGE_BUFFER or VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, and the shader64BitIndexing feature is not enabled, the range member of each element of pBufferInfo, or the effective range if range is VK_WHOLE_SIZE, must be less than or equal to VkPhysicalDeviceLimits::maxStorageBufferRange (https://docs.vulkan.org/spec/latest/chapters/descriptorsets.html#VUID-VkWriteDescriptorSet-descriptorType-00333)
+# Objects: 1
+#     [0] VkBuffer 0x9b6e0000009b6e
+
+# KHR-Single-GL46.enhanced_layouts.vertex_attrib_locations
+#
+# Validation Error: [ VUID-vkCmdDrawIndexed-None-09462 ] | MessageID = 0x170897e1
+# vkCmdDrawIndexed(): vkCmdSetVertexInputEXT set pVertexBindingDivisors[1] (binding 1) divisor as 2, but firstInstance is 2 and supportsNonZeroFirstInstance is VK_FALSE.
+# The Vulkan spec states: If shader objects are used for drawing or the bound graphics pipeline state was created with the VK_DYNAMIC_STATE_VERTEX_INPUT_EXT dynamic state enabled, any member of the pVertexBindingDescriptions parameter to the vkCmdSetVertexInputEXT call that sets this dynamic state has a value other than 1 in divisor, and VkPhysicalDeviceVertexAttributeDivisorProperties::supportsNonZeroFirstInstance is VK_FALSE, then firstInstance must be 0 (https://docs.vulkan.org/spec/latest/chapters/drawing.html#VUID-vkCmdDrawIndexed-None-09462)
+# Objects: 2
+#     [0] VkCommandBuffer 0x7f235c0182a0[zink cmdbuf]
+#     [1] VkPipeline 0x2ca00000002ca

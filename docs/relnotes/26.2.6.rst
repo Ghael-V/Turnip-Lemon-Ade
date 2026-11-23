@@ -1,0 +1,398 @@
+Mesa 26.2.6 Release Notes / 2026-10-28
+======================================
+
+Mesa 26.2.6 is a bug fix release which fixes bugs found since the 26.2.5 release.
+
+Mesa 26.2.6 implements the OpenGL 4.6 API, but the version reported by
+glGetString(GL_VERSION) or glGetIntegerv(GL_MAJOR_VERSION) /
+glGetIntegerv(GL_MINOR_VERSION) depends on the particular driver being used.
+Some drivers don't support all the features required in OpenGL 4.6. OpenGL
+4.6 is **only** available if requested at context creation.
+Compatibility contexts may report a lower version depending on each driver.
+
+Mesa 26.2.6 implements the OpenCL 3.1 API, but the version reported by
+the CL_DEVICE_VERSION, CL_DEVICE_NUMERIC_VERSION and CL_DEVICE_OPENCL_C_ALL_VERSIONS
+clGetDeviceInfo queries depends on the particular driver being used.
+
+Mesa 26.2.6 implements the Vulkan 1.4 API, but the version reported by
+the apiVersion property of the VkPhysicalDeviceProperties struct
+depends on the particular driver being used.
+
+SHA checksums
+-------------
+
+::
+
+    SHA256: b9436b3e1a8be76fbd4823dc884f90596ab7c6ac5e1867a305e66ffccfb31a92  mesa-26.2.6.tar.xz
+    SHA512: 0959679a8e9560a36d63bfc67357c73fde6fd98b00c29859ab30b31454b9ef8c8def38c7e180b168fd39080681042559dfc4a4252dfb289930a9776e0243c2dc  mesa-26.2.6.tar.xz
+
+
+New features
+------------
+
+- None
+
+
+Bug fixes
+---------
+
+- ACO: s_bitset0 retargeted to exec drops the VCC condition (26.2 regression from 984aa6e0855, RADV, RDNA2 to RDNA4, KytyPS5)
+- ANV: Assert on vkGetPhysicalDeviceImageFormatProperties2
+- Confidential issue #16630
+- GPULostDevice on 6800 XT (mesa-26.0.X)
+- Intel Meteor Lake: Unigine Heaven and Valley trigger GPU hangs with Mesa 26.2.0–26.2.4; work with 26.1.8
+- Witcher 3 Remastered - Graphical/visual bug that act like an overlay
+- [Turnip/A650] Hangs in several several games due to some missing shader(?) workaround
+- d3d12 (WSL2, NVIDIA RTX 5090): self-deadlock in d3d12_bo_new(), reclaim under pb_slab manager mutex hangs RPCS3 on compressed texture upload
+- freedreno: garbled text rendered by pdf.js on snapdragon x1 elite
+- kopper: non-dmabuf sw texture update is broken
+- lavapipe: maintenance8 depth/stencil <-> color vkCmdCopyImage copies only sample 0 of multisampled D32_SFLOAT_S8_UINT and D24_UNORM_S8_UINT images
+- lavapipe: new RT fails
+- v3dv: gpu hang when an inline uniform block comes before a sampled image
+
+
+Changes
+-------
+
+3mro777o (1):
+
+- nir/opt_varyings: use nir_src_rewrite when shrinking varying arrays
+
+AeroModes (1):
+
+- meson: fix GNU qsort_r detection for GCC
+
+Caio Oliveira (4):
+
+- intel/compiler: Fix cooperative matrix conversion signedness
+- jay: Update PHI uniform field when spilling its destination
+- gen: Fix typo in validation for special restrictions
+- jay: Don't lower U32 movs to F32 when cmod is being used
+
+Callum Fare (1):
+
+- ir3: Fix potential out-of-range load_const_ir3 base offset
+
+Christian Gmeiner (3):
+
+- etnaviv: blt: Program the source TS for mipmap generation
+- etnaviv: Update sampler sources before deriving state
+- etnaviv: Expose only the linear modifier for NV12
+
+Connor Abbott (3):
+
+- tu: Don't bail after the first instr when gathering push const range
+- tu: Fix bindless descriptor invalidate sequence
+- ir3: Only call nir_opt_shrink_vectors once
+
+Daniel Schürmann (2):
+
+- nir/lower_continue_constructs: preserve phi sources when simplifying loop jumps
+- nir/lower_continue_constructs: preserve SSA dominance across nested exits
+
+Danylo Piliaiev (3):
+
+- tu/a6xx: Set correct value for GRAS_MODE_CNTL
+- tu/a6xx: Invalidate shared consts before disabling them
+- freedreno: Fixup incorrectly copied A6XX_TPL1_DBG_ECO_CNTL for A650
+
+Dave Airlie (5):
+
+- llvmpipe: handle indirect geometry shader inputs
+- llvmpipe: add vector width to the disk cache.
+- lavapipe: fix multisample depth<->color copies.
+- egl/surfaceless: don't probe device name if fd is invalid.
+- llvmpipe: advance 1D framebuffer fetches at four lanes
+
+David Rosca (5):
+
+- radeonsi/mm: Set error when failing to map bitstream buffer
+- radeonsi/mm: Don't return feedback when allocating buffer fails
+- radeonsi/mm: Fix pipe_context leak when cs_create fails
+- radeonsi/mm: Check embedded buffer map fails
+- radeonsi/mm: Increase obu_size length to 2 bytes in AV1 sequence header
+
+Dmitry Baryshkov (3):
+
+- ir3: do not let full-register writes reset half-register delays before a6xx
+- ir3: reserve image dimensions for read-write images on a5xx
+- freedreno/a4xx+a5xx: clear PIPE_BIND_OPENCL before checking format support
+
+Dominique Belhachemi (1):
+
+- pvr: amend shared memory coeff reg count to use DWORD granularity
+
+Dylan Baker (1):
+
+- meson: imgui-sdl3-vulkan needs the vulkan loader headers
+
+Emma Anholt (3):
+
+- freedreno: Ensure that the generated pack headers are stable between builds.
+- isaspec: Fix encoder output stability.
+- nir/opt_algebraic_test: Fix unit test codegen output stability.
+
+Eric Engestrom (3):
+
+- docs: add sha sum for 26.2.5
+- .pick_status.json: Update to a0aea0d2d932064dd6de7f856d49bf69f79ee1de
+- .pick_status.json: Mark 4bf3e753783fac66fb7059e423ef049334e186d5 as denominated
+
+Erik Faye-Lund (13):
+
+- panfrost: plug precomp-shader leak
+- panvk: fix allow_merging_workgroups logic
+- panvk: drop redundant descriptor-copy
+- pan/lib: fix repeated width_px check
+- pan/lib: fix copy-pasta bug
+- pan/lib: do not fold into the same op twice
+- panfrost: free correct handle
+- pan/bi: handle tls-stores in helper analysis
+- vulkan/meta: correct image-resolve for 3D image
+- panvk: properly ignore depth-stencil aspectMask
+- vulkan/meta: fixup typo
+- panvk: track heap budget across instances
+- panvk: write_image_view_desc deals with images, not samplers
+
+Fabricio Akio (1):
+
+- freedreno/a5xx: Reload textures, SSBOs and images after the program
+
+Faith Ekstrand (2):
+
+- pan/nir: Don't use narrow_array_index with wide_indices
+- kopper: Don't call swrast_update_tex_buffer() if we don't have swrast
+
+Georg Lehmann (4):
+
+- vc4: set lower_int64_options to not support any 64bit alu
+- v3dv: set lower_int64_options to not support any 64bit alu
+- radv: expose fp16 on gfx8 for vkd3d-proton
+- aco/isel: fix sgpr sub dword nir_op_vec with undefs
+
+HTRMC (1):
+
+- v3dv: keep descriptors aligned after inline uniform blocks
+
+Herman Semenoff (1):
+
+- intel/i915: fix I915_PARAM_HAS_CONTEXT_FREQ_HINT check and low latency param value
+
+Iago Toral Quiroga (1):
+
+- v3dv: Fix early-ez on v71
+
+Ian Romanick (4):
+
+- brw: Fix regions_overlap for accumulators
+- brw: CSEL cannot mix type sizes even for immediates
+- brw: CSEL cannot have immediate src1
+- brw: Fix 16-bit type handling in constant combining
+
+Jack Boykin (1):
+
+- radv/video: remove decode tier3
+
+Jesse Natalie (2):
+
+- d3d12: Stop reclaim retries when the fence wait fails
+- d3d12: Reclaim buffer memory outside manager locks
+
+Job Noorman (1):
+
+- tu: fix texel buffer emulation bounds check
+
+Jose Maria Casanova Crespo (1):
+
+- broadcom/compiler: keep robust SSBO stores scalar for bounds checking
+
+Juan A. Suarez Romero (1):
+
+- egl/gbm: Ignore current from buffer in has_free_buffers
+
+Karol Herbst (6):
+
+- util/queue: remove locked argument from util_queue_kill_threads
+- util/queue: remove locked argument from util_queue_adjust_num_threads
+- util/queue: Fix dead-lock between queue_finish and queue_kill_threads
+- rusticl/program: implement CL_INVALID_SPEC_ID error for clSetProgramSpecializationConstant
+- rusticl/spirv: add SPIRVBin::specialize
+- rusticl/program: fix spec constants
+
+Konstantin Seurer (1):
+
+- lavapipe: Fix DGC + conditional rendering
+
+Krzysztof Sokołowski (1):
+
+- lima: close the screen fd on destroy and on failed creation
+
+Leon Seemann (1):
+
+- vbo: Fix extra vertex drawn on line loop end after buffer wrap
+
+Lionel Landwerlin (6):
+
+- brw: fix oob source access
+- vulkan/wsi: fix a bunch of incorrect error code checks
+- anv: avoid leak on internal kernels
+- anv: fix potential set_layout null pointer access
+- intel/compiler: always run query optimization passes on supporting HW
+- anv: bail early on unsupported image format
+
+Lokbondo Kung (1):
+
+- util: Fix misaligned address for 'gc_slab'
+
+Martin Roukala (né Peres) (1):
+
+- Revert "ci-tron: bypass caching proxy for docker images"
+
+Mary Guillemard (1):
+
+- nvk: Do not overwrite prev_subc if no method were emitted
+
+Matt Turner (4):
+
+- gallivm: don't emit a scalar llvm.nearbyint on PowerPC
+- gallivm: truncate integer constants to the type width
+- mesa: zero pipe_memory_info before querying it
+- mesa: don't read past the name when matching a resource without its [0]
+
+Maíra Canal (1):
+
+- v3dv: drop the "accum_fd" assertion in merge_syncobjs()
+
+Mike Blumenkrantz (40):
+
+- zink: update the pipeline when the draw mode needs a different one
+- zink: update the last vertex stage variant when its key changes
+- zink: emit global binding barriers before setting batch usage
+- zink: count every held swapchain image against the acquire limit
+- zink: stop retrying swapchain acquires that cannot succeed
+- zink: stop spinning on swapchain readbacks that can't acquire an image
+- zink: don't acquire a new swapchain image to read presented content
+- zink: mark swapchain readback copies stale on GENERAL layout barriers
+- zink: create swapchain readback copies as stale
+- zink: use readback copies when a presented image cannot be reacquired
+- zink: wait for the acquire before presenting an image for readback
+- zink: recycle present semaphores when their image is acquired again
+- zink: resolve swapchain blit sources before any blit path reads them
+- zink: only try DISJOINT for multi-planar formats in find_good_mod
+- wgl: keep the GALLIUM_DRIVER name valid for driconf
+- wgl: don't wait for the gpu on zink swaps
+- wgl: don't choose pbuffer-only pixel formats for windows
+- anv+hasvk: keep shaderInt8 with no_16bit
+- lavapipe: only advertise VK_EXT_headless_surface with WSI
+- zink: only enable VK_EXT_headless_surface with VK_KHR_surface
+- mesa: raise INVALID_VALUE for bad msrtt texture sample counts
+- mesa: raise INVALID_ENUM for msrtt textargets that are not 2d or a face
+- mesa: raise the OVR_multiview draw errors for xfb and extra stages
+- mesa: allow multiview attachments of any texture level
+- mesa: give RenderbufferStorageMultisampleEXT the INVALID_VALUE sample limit
+- mesa: allow reading from EXT_multisampled_render_to_texture renderbuffers
+- mesa: don't mix implicit and explicit multisample attachments
+- zink: create msrtss transients with only the attached level
+- zink: reload msrtss transients after transfer writes to the image
+- radeonsi: re-emit the sqtt pipeline when shader states are emitted
+- mesa/st: pass PIPE_IMAGE_ACCESS bits to make_image_handle_resident
+- zink: share bindless handles between contexts
+- zink: track bindless image access per context
+- zink: drop bindless residency on context destroy
+- zink: fix bindless image buffer descriptors
+- zink: index bindless buffer arrays without the handle offset
+- zink: consistently use atomics for ctx->robust_ctx_count access
+- zink: unlock the copy context when timestamp query creation fails
+- zink: don't update unordered state in get_cmdbuf() in the presence of current usage
+- zink: create mesh full programs when replacing mesh separable programs
+
+Oliver Clarke (1):
+
+- radv: disable 8x MSAA for VRS in device properties
+
+Peyton Lee (2):
+
+- radeonsi/vpe: fix YUV422 output width issue
+- radeonsi/vpe: fix 3D LUT channel order and PQ tone mapping
+
+Rhys Perry (3):
+
+- radv: stop checking dirty bit in CmdExecuteCommands HiZ workaround
+- aco: add a couple aco_alu_opcode_info methods
+- aco/opt_postRA: check for tied defs in try_optimize_branching_sequence
+
+Rob Clark (1):
+
+- freedreno/a6xx: Fix fbfetch with msrtt
+
+Samuel Pitoiset (6):
+
+- radv: fix the VMA heap size for the descriptor sets allocator
+- radv: fix a memory leak when allocating a pool entry failed
+- radv: fix the error code when allocating a pool entry failed
+- radv: allow multisampling with 2D CUBE_COMPATIBLE images with MSRTSS
+- radv: fix emitting RSRC2 for vertex prologs
+- radv/rt: fix overwriting stack size on partial cache hits
+
+Skipin Andrey (3):
+
+- dri3: ignore IdleNotify for a reused pixmap XID
+- wsi/x11: ignore IdleNotify for a reused pixmap XID
+- vl/dri3: ignore IdleNotify for a reused pixmap XID
+
+Tapani Pälli (1):
+
+- iris: update nir information within iris_force_dual_color_blend
+
+Timothy Arceri (1):
+
+- st/mesa: pass the edge flag vertex element to the draw module
+
+Valentine Burley (2):
+
+- lavapipe: Guard VK_EXT_multisampled_render_to_swapchain with LVP_USE_WSI_PLATFORM
+- zink/ci: Move glx\@glx-make-current to flakes
+
+Yiwei Zhang (23):
+
+- venus: fix DMR on import failure
+- venus: amend TLS ring error check in pipeline cache retrieval
+- venus: fix a race condition for TLS ring creations
+- venus: return TIMEOUT instead of NOT_READY on fence wait timeout
+- venus: fix legacy semaphore wait values to align with semaphores
+- venus: fix lockless query of descriptor size cache
+- venus: fix vk_command_pool adoption
+- venus: recycle sfb cmds when wait is done elsewhere
+- venus: avoid new sfb cmds being prematurely recycled
+- venus/sim_syncobj: amend to set errno on wait timeout
+- venus/virtgpu: avoid potential double BO destroy
+- venus: fix maint7 zero layeredApiCount with non-NULL pLayeredApis
+- venus: avoid UB in vn_get_ahb_image_props
+- venus: avoid null ptr dereference for zero external image handleType
+- venus: properly scrub VkGraphicsPipelineCreateInfo::renderPass
+- vulkan/runtime/meson: avoid duplicate header gen deps list
+- venus: fix pWaitDstStageMask when dropping imported semaphores
+- venus/sim_syncobj: convert absolute timeout back to relative
+- venus: avoid deadlock in cs upload for guest vram
+- venus: ignore VkImportMemoryFdInfoKHR if handleType is 0
+- venus: fix planar format host copy size calc
+- venus: consider buffer usage 2 when fixing external buffer pNext
+- venus: only call vn_wsi_sync_wait with valid sync fd
+
+bslette (1):
+
+- nak: never encode IDP.4A with an immediate source
+
+llyyr (1):
+
+- radv/amdgpu: fix BO list leak on command submit failure
+
+osman.yagci (1):
+
+- egl/dri2: destroy the display lock when the display is destroyed
+
+soka (3):
+
+- zink: wait for dma-buf fences when the batch ends
+- zink: track batch dmabuf exports in a hash_table instead of a set
+- zink: wait for dma-buf readers only when writing

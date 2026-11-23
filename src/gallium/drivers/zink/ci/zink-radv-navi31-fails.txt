@@ -1,0 +1,92 @@
+glx@glx-multi-window-single-context,Fail
+
+spec@arb_tessellation_shader@arb_tessellation_shader-tes-gs-max-output -small -scan 1 50,Crash
+
+# Delta over NAVI10
+spec@!opengl 1.1@depthstencil-default_fb-blit samples=4,Fail
+spec@!opengl 1.1@depthstencil-default_fb-copypixels samples=6,Fail
+
+spec@ext_image_dma_buf_import@ext_image_dma_buf_import-export,Fail
+spec@ext_image_dma_buf_import@ext_image_dma_buf_import-ownership_transfer,Fail
+spec@ext_image_dma_buf_import@ext_image_dma_buf_import-refcount,Fail
+spec@ext_image_dma_buf_import@ext_image_dma_buf_import-sample_argb8888,Fail
+spec@ext_image_dma_buf_import@ext_image_dma_buf_import-sample_ayuv,Fail
+spec@ext_image_dma_buf_import@ext_image_dma_buf_import-sample_nv12,Fail
+spec@ext_image_dma_buf_import@ext_image_dma_buf_import-sample_nv21,Fail
+spec@ext_image_dma_buf_import@ext_image_dma_buf_import-sample_p010,Fail
+spec@ext_image_dma_buf_import@ext_image_dma_buf_import-sample_p012,Fail
+spec@ext_image_dma_buf_import@ext_image_dma_buf_import-sample_p016,Fail
+spec@ext_image_dma_buf_import@ext_image_dma_buf_import-sample_uyvy,Fail
+spec@ext_image_dma_buf_import@ext_image_dma_buf_import-sample_vyuy,Fail
+spec@ext_image_dma_buf_import@ext_image_dma_buf_import-sample_xrgb8888,Fail
+spec@ext_image_dma_buf_import@ext_image_dma_buf_import-sample_xyuv,Fail
+spec@ext_image_dma_buf_import@ext_image_dma_buf_import-sample_y210,Fail
+spec@ext_image_dma_buf_import@ext_image_dma_buf_import-sample_y212,Fail
+spec@ext_image_dma_buf_import@ext_image_dma_buf_import-sample_y216,Fail
+spec@ext_image_dma_buf_import@ext_image_dma_buf_import-sample_y410,Fail
+spec@ext_image_dma_buf_import@ext_image_dma_buf_import-sample_y412,Fail
+spec@ext_image_dma_buf_import@ext_image_dma_buf_import-sample_y416,Fail
+spec@ext_image_dma_buf_import@ext_image_dma_buf_import-sample_yuv420,Fail
+spec@ext_image_dma_buf_import@ext_image_dma_buf_import-sample_yvu420,Fail
+spec@ext_image_dma_buf_import@ext_image_dma_buf_import-sample_yvyu,Fail
+spec@ext_image_dma_buf_import@ext_image_dma_buf_import-transcode-nv12-as-r8-gr88,Fail
+
+# These seem to only fail with ASAN enabled.
+asan-KHR-GL46.packed_pixels.pbo_rectangle.compressed_red_rgtc1_format_rgb,Fail
+asan-KHR-GL46.packed_pixels.pbo_rectangle.compressed_signed_red_rgtc1_format_bgra,Fail
+asan-KHR-GL46.packed_pixels.pbo_rectangle.compressed_signed_rg_rgtc2_format_bgr,Fail
+asan-KHR-GL46.packed_pixels.pbo_rectangle.compressed_signed_rg_rgtc2_format_rgb,Fail
+asan-KHR-GL46.packed_pixels.pbo_rectangle.compressed_signed_rg_rgtc2_format_rgba,Fail
+asan-KHR-GL46.packed_pixels.rectangle.compressed_rg_format_bgr,Fail
+asan-KHR-GL46.packed_pixels.rectangle.compressed_signed_red_rgtc1_format_red,Fail
+asan-KHR-GL46.packed_pixels.rectangle.compressed_signed_red_rgtc1_format_rgba,Fail
+asan-KHR-GL46.packed_pixels.varied_rectangle.compressed_red_rgtc1_format_bgr,Fail
+asan-KHR-GL46.packed_pixels.varied_rectangle.compressed_red_rgtc1_format_rg,Fail
+asan-KHR-GL46.packed_pixels.varied_rectangle.compressed_rg_format_bgr,Fail
+asan-KHR-GL46.packed_pixels.varied_rectangle.compressed_rg_format_bgra,Fail
+asan-KHR-GL46.packed_pixels.varied_rectangle.compressed_rg_format_red,Fail
+asan-KHR-GL46.packed_pixels.varied_rectangle.compressed_rg_format_rgb,Fail
+asan-KHR-GL46.packed_pixels.varied_rectangle.compressed_rg_format_rgba,Fail
+asan-KHR-GL46.packed_pixels.varied_rectangle.compressed_rg_rgtc2_format_bgra,Fail
+asan-KHR-GL46.packed_pixels.varied_rectangle.compressed_rg_rgtc2_format_red,Fail
+asan-KHR-GL46.packed_pixels.varied_rectangle.compressed_signed_red_rgtc1_format_bgr,Fail
+asan-KHR-GL46.packed_pixels.varied_rectangle.compressed_signed_red_rgtc1_format_bgra,Fail
+asan-KHR-GL46.packed_pixels.varied_rectangle.compressed_signed_red_rgtc1_format_rgb,Fail
+asan-KHR-GL46.packed_pixels.varied_rectangle.compressed_signed_rg_rgtc2_format_bgr,Fail
+asan-KHR-GL46.packed_pixels.varied_rectangle.compressed_signed_rg_rgtc2_format_bgra,Fail
+
+# CL issues
+api@clgetdeviceinfo,Fail
+api@clgetextensionfunctionaddressforplatform,Fail
+api@cllinkprogram,Fail
+program@execute@builtin@builtin-float-nextafter-1.0.generated,Fail
+program@execute@builtin@builtin-float-nextafter-1.0.generated@nextafter float1,Fail
+program@execute@builtin@builtin-float-nextafter-1.0.generated@nextafter float16,Fail
+program@execute@builtin@builtin-float-nextafter-1.0.generated@nextafter float2,Fail
+program@execute@builtin@builtin-float-nextafter-1.0.generated@nextafter float4,Fail
+program@execute@builtin@builtin-float-nextafter-1.0.generated@nextafter float8,Fail
+program@execute@vector-conversion,Fail
+asan-api@clgetplatformids,Fail
+
+# uprev Piglit in Mesa
+spec@!opengl 1.0@gl-1.0-front-back-interleave,Fail
+spec@!opengl 1.0@gl-1.0-read-front-after-swap,Fail
+spec@!opengl 1.5@gl-1.5-gen-buffers-unique,Crash
+spec@ext_image_dma_buf_import@ext_image_dma_buf_import-sample_abgr1555,Fail
+spec@ext_image_dma_buf_import@ext_image_dma_buf_import-sample_abgr16161616,Fail
+spec@ext_image_dma_buf_import@ext_image_dma_buf_import-sample_abgr16161616f,Fail
+spec@ext_image_dma_buf_import@ext_image_dma_buf_import-sample_abgr2101010,Fail
+spec@ext_image_dma_buf_import@ext_image_dma_buf_import-sample_abgr4444,Fail
+spec@ext_image_dma_buf_import@ext_image_dma_buf_import-sample_abgr8888,Fail
+spec@ext_image_dma_buf_import@ext_image_dma_buf_import-sample_argb1555,Fail
+spec@ext_image_dma_buf_import@ext_image_dma_buf_import-sample_argb2101010,Fail
+spec@ext_image_dma_buf_import@ext_image_dma_buf_import-sample_argb4444,Fail
+spec@ext_image_dma_buf_import@ext_image_dma_buf_import-sample_gr1616,Fail
+spec@ext_image_dma_buf_import@ext_image_dma_buf_import-sample_gr88,Fail
+spec@ext_image_dma_buf_import@ext_image_dma_buf_import-sample_rgb565,Fail
+spec@ext_image_dma_buf_import@ext_image_dma_buf_import-sample_xbgr16161616,Fail
+spec@ext_image_dma_buf_import@ext_image_dma_buf_import-sample_xbgr16161616f,Fail
+spec@ext_image_dma_buf_import@ext_image_dma_buf_import-sample_xbgr2101010,Fail
+spec@ext_image_dma_buf_import@ext_image_dma_buf_import-sample_xbgr8888,Fail
+spec@ext_image_dma_buf_import@ext_image_dma_buf_import-sample_xrgb2101010,Fail
+

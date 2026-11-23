@@ -1,0 +1,45 @@
+# Something seems to have changed in TensorFlow Lite and it doesn't pass any more.
+# Probably the implementation of TFLite_Detection_PostProcess is producing results in a different order.
+# The model actually detects correctly.
+teflon/ssdlite_mobiledet.whole,Fail
+
+teflon/yolox_nano.0104,Fail
+teflon/yolox_nano.0114,Fail
+teflon/yolox_nano.0124,Fail
+teflon/yolox_nano.0127,Fail
+teflon/yolox_nano.0130,Fail
+teflon/yolox_nano.0133,Fail
+teflon/yolox_nano.0152,Fail
+teflon/yolox_nano.whole,Fail
+
+teflon/deeplabv3.0004,Fail
+teflon/deeplabv3.0011,Fail
+teflon/deeplabv3.0022,Fail
+teflon/deeplabv3.whole,Fail
+
+teflon/efficientdet_lite0.whole,Fail
+
+teflon/inception_v1.whole,Fail
+
+teflon/movenet_lightning.0112,Fail
+teflon/movenet_lightning.0141,Fail
+teflon/movenet_lightning.0152,Fail
+teflon/movenet_lightning.0155,Fail
+teflon/movenet_lightning.whole,Fail
+
+teflon/movenet_thunder.0112,Fail
+teflon/movenet_thunder.0141,Fail
+teflon/movenet_thunder.0152,Fail
+teflon/movenet_thunder.0155,Fail
+teflon/movenet_thunder.whole,Fail
+
+teflon/posenet_mobilenet_v1.0003,Fail
+teflon/posenet_mobilenet_v1.0007,Fail
+teflon/posenet_mobilenet_v1.0011,Fail
+teflon/posenet_mobilenet_v1.whole,Fail
+
+teflon/ssd_mobilenet_v2.0011,Fail
+teflon/ssd_mobilenet_v2.0052,Fail
+teflon/ssd_mobilenet_v2.whole,Fail
+
+teflon/ssd_mobilenet_v3.whole,Fail

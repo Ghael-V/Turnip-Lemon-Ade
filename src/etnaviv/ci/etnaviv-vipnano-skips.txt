@@ -1,0 +1,36 @@
+# GatherNd operations that are unsupported.
+# If they fail is because of a bug in the teflon test runner.
+teflon/movenet_lightning.0112
+teflon/movenet_lightning.0141
+teflon/movenet_lightning.0152
+teflon/movenet_thunder.0112
+teflon/movenet_thunder.0141
+teflon/movenet_thunder.0152
+
+# No idea why this one is failing, needs investigation.
+# It takes a long time, so better skip for now.
+teflon/ssdlite_mobiledet.whole
+
+# These tests below are additions that Rocket only supports when they can be fused to a convolution.
+teflon/ssdlite_mobiledet.0008
+teflon/ssdlite_mobiledet.0011
+teflon/ssdlite_mobiledet.0014
+teflon/ssdlite_mobiledet.0019
+teflon/ssdlite_mobiledet.0022
+teflon/ssdlite_mobiledet.0025
+teflon/ssdlite_mobiledet.0032
+teflon/ssdlite_mobiledet.0035
+teflon/ssdlite_mobiledet.0038
+teflon/ssdlite_mobiledet.0045
+teflon/ssdlite_mobiledet.0049
+teflon/ssdlite_mobiledet.0053
+teflon/ssdlite_mobiledet.0060
+teflon/ssdlite_mobiledet.0064
+teflon/ssdlite_mobiledet.0068
+teflon/yolox_nano.0011
+teflon/yolox_nano.0020
+teflon/yolox_nano.0023
+teflon/yolox_nano.0026
+teflon/yolox_nano.0035
+teflon/yolox_nano.0038
+teflon/yolox_nano.0041

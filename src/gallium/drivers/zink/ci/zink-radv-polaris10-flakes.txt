@@ -1,0 +1,28 @@
+dEQP-GLES3.functional.texture.shadow.2d_array.linear_mipmap_nearest.greater_or_equal_depth24_stencil8
+dEQP-GLES3.functional.texture.shadow.2d_array.linear_mipmap_nearest.less_or_equal_depth24_stencil8
+dEQP-GLES31.functional.copy_image.mixed.viewclass_128_bits_mixed.srgb8_alpha8_astc_10x5_khr_rgba32i.texture3d_to_texture3d
+dEQP-GLES31.functional.copy_image.mixed.viewclass_128_bits_mixed.srgb8_alpha8_astc_5x4_khr_rgba32ui.texture3d_to_cubemap
+dEQP-GLES31.functional.copy_image.non_compressed.viewclass_32_bits.rgb10_a2_rgba8.texture2d_to_texture2d_array
+dEQP-GLES31.functional.fbo.no_attachments.npot_size.15x15
+dEQP-GLES31.functional.fbo.no_attachments.npot_size.1x1
+dEQP-GLES31.functional.fbo.no_attachments.npot_size.3x3
+dEQP-GLES31.functional.texture.specification.teximage3d_depth.depth24_stencil8_cube_array
+dEQP-GLES31.functional.texture.specification.teximage3d_depth.depth32f_stencil8_cube_array
+glx@glx-make-current
+glx@glx-multithread-texture
+spec@!opengl 1.1@getteximage-depth@GL_TEXTURE_1D-GL_DEPTH_COMPONENT32
+spec@!opengl 1.2@tex3d-maxsize
+spec@arb_query_buffer_object@qbo@query-GL_GEOMETRY_SHADER_INVOCATIONS-ASYNC-GL_INT
+spec@arb_query_buffer_object@qbo@query-GL_GEOMETRY_SHADER_INVOCATIONS-ASYNC-GL_UNSIGNED_INT
+spec@arb_query_buffer_object@qbo@query-GL_GEOMETRY_SHADER_INVOCATIONS-ASYNC-GL_UNSIGNED_INT64_ARB
+spec@arb_query_buffer_object@qbo@query-GL_GEOMETRY_SHADER_INVOCATIONS-SYNC-GL_INT
+spec@arb_query_buffer_object@qbo@query-GL_GEOMETRY_SHADER_INVOCATIONS-SYNC-GL_UNSIGNED_INT
+spec@arb_query_buffer_object@qbo@query-GL_GEOMETRY_SHADER_INVOCATIONS-SYNC-GL_UNSIGNED_INT64_ARB
+spec@arb_query_buffer_object@qbo@query-GL_GEOMETRY_SHADER_PRIMITIVES_EMITTED-ASYNC-GL_INT
+spec@arb_query_buffer_object@qbo@query-GL_GEOMETRY_SHADER_PRIMITIVES_EMITTED-ASYNC-GL_UNSIGNED_INT
+spec@arb_query_buffer_object@qbo@query-GL_GEOMETRY_SHADER_PRIMITIVES_EMITTED-ASYNC-GL_UNSIGNED_INT64_ARB
+spec@arb_query_buffer_object@qbo@query-GL_GEOMETRY_SHADER_PRIMITIVES_EMITTED-SYNC-GL_INT
+spec@arb_query_buffer_object@qbo@query-GL_GEOMETRY_SHADER_PRIMITIVES_EMITTED-SYNC-GL_UNSIGNED_INT
+spec@arb_query_buffer_object@qbo@query-GL_GEOMETRY_SHADER_PRIMITIVES_EMITTED-SYNC-GL_UNSIGNED_INT64_ARB
+spec@glsl-1.50@execution@geometry@point-size-out
+spec@glsl-1.50@execution@redeclare-pervertex-out-subset-gs

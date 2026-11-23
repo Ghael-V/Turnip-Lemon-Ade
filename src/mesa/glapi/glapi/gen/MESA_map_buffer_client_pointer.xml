@@ -1,0 +1,37 @@
+<?xml version="1.0"?>
+<!DOCTYPE OpenGLAPI SYSTEM "gl_API.dtd">
+
+<OpenGLAPI>
+
+<category name="GL_MESA_map_buffer_client_pointer">
+
+    <enum name="GL_BUFFER_CLIENT_POINTER_SIZE_MESA"   value="0x9790"/>
+
+    <enum name="GL_MAP_CLIENT_POINTER_BIT_MESA"       value="0x4000"/>
+
+    <enum name="GL_CLIENT_POINTER_RELEASE_ALL_MESA"   value="0x0001"/>
+
+    <enum name="GL_CLIENT_POINTER_STREAM_DRAW_MESA"   value="0x9791"/>
+    <enum name="GL_CLIENT_POINTER_STREAM_READ_MESA"   value="0x9792"/>
+    <enum name="GL_CLIENT_POINTER_STREAM_COPY_MESA"   value="0x9793"/>
+    <enum name="GL_CLIENT_POINTER_STATIC_DRAW_MESA"   value="0x9794"/>
+    <enum name="GL_CLIENT_POINTER_STATIC_READ_MESA"   value="0x9795"/>
+    <enum name="GL_CLIENT_POINTER_STATIC_COPY_MESA"   value="0x9796"/>
+    <enum name="GL_CLIENT_POINTER_DYNAMIC_DRAW_MESA"  value="0x9797"/>
+    <enum name="GL_CLIENT_POINTER_DYNAMIC_READ_MESA"  value="0x9798"/>
+    <enum name="GL_CLIENT_POINTER_DYNAMIC_COPY_MESA"  value="0x9799"/>
+
+    <function name="AddClientPointerRangeMESA" es2="3.0" desktop="true">
+        <param name="addr" type="GLvoid *"/>
+        <param name="size" type="GLsizeiptr"/>
+    </function>
+
+    <function name="ReleaseClientPointerRangeMESA" es2="3.0" desktop="true">
+        <param name="flags" type="GLbitfield"/>
+        <param name="size" type="GLsizeiptr *"/>
+        <return type="GLvoid *"/>
+    </function>
+
+</category>
+
+</OpenGLAPI>

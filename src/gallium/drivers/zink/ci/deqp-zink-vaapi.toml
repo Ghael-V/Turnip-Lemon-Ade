@@ -1,0 +1,8 @@
+[[gtest]]
+bin = "/va/bin/test_va_api"
+
+[[fluster]]
+bin = "/fluster/fluster.py"
+decoders = [
+  "GStreamer-H.264-VAAPI",
+]

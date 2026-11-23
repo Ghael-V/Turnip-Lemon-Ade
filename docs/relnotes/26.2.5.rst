@@ -1,0 +1,299 @@
+Mesa 26.2.5 Release Notes / 2026-10-14
+======================================
+
+Mesa 26.2.5 is a bug fix release which fixes bugs found since the 26.2.4 release.
+
+Mesa 26.2.5 implements the OpenGL 4.6 API, but the version reported by
+glGetString(GL_VERSION) or glGetIntegerv(GL_MAJOR_VERSION) /
+glGetIntegerv(GL_MINOR_VERSION) depends on the particular driver being used.
+Some drivers don't support all the features required in OpenGL 4.6. OpenGL
+4.6 is **only** available if requested at context creation.
+Compatibility contexts may report a lower version depending on each driver.
+
+Mesa 26.2.5 implements the OpenCL 3.1 API, but the version reported by
+the CL_DEVICE_VERSION, CL_DEVICE_NUMERIC_VERSION and CL_DEVICE_OPENCL_C_ALL_VERSIONS
+clGetDeviceInfo queries depends on the particular driver being used.
+
+Mesa 26.2.5 implements the Vulkan 1.4 API, but the version reported by
+the apiVersion property of the VkPhysicalDeviceProperties struct
+depends on the particular driver being used.
+
+SHA checksums
+-------------
+
+::
+
+    SHA256: 794b3d1729075dae7ebd47c7283b7ca0cdb5dec668f7f11cc0a5d82f6138a0a5  mesa-26.2.5.tar.xz
+    SHA512: 08c7d7ea426ddfb0f7bc51b06e18c363a4d31cf1a8b203828bb455eda0189e41d2215eb9f627585ed11e0d0f231a6a8c9f0c7176238760cd76b62e20c35ccd6a  mesa-26.2.5.tar.xz
+
+
+New features
+------------
+
+- None
+
+
+Bug fixes
+---------
+
+- Mesa 26.2.1 Ground Truth Ambient Occlusion Broken on No Man's Sky
+- Mesh shader uniform/constant rendering issue
+- RADV regression in Mesa 26.2.x – No Man's Sky has broken/dark sunlight on RX 7900 XT
+- Regression: D3D12 driver and DRI broken under WSL in 25.0.4
+- SIGILL with llvmpipe on ARMv9(?) without SVE
+- X-Plane 12 encountering a GPU crash on load after recent update.
+- [Forts RTS] Corrupt rendering of compressed textures
+- aco: illegal VOP3 v_cndmask_b32 with two SGPR operands on GFX6-9 in emit_scaled_op (fp32 denorm preserve) → wrong results
+- radeonsi: incorrect rendering in Doom 3: BFG
+- radv/amdgpu: padding VM page (RADEON_FLAG_VM_PAD_1PAGE) is never unmapped on BO destroy; VA reuse then fails with "va ... conflict" on GFX9
+- rusticl: could not initialize SVM support with radeonsi,zink
+- zink: wrong pipeline after a vertex-layout-only change without VK_EXT_vertex_input_dynamic_state
+
+
+Changes
+-------
+
+Caio Oliveira (1):
+
+- iris: Free compute compilation context on failure
+
+Christian Gmeiner (2):
+
+- etnaviv: Update valid_buffer_range for stream output buffers
+- etnaviv: Skip render compatibility for external TS plane resources
+
+Connor Abbott (1):
+
+- vulkan/graphics_state: Don't get IAL state when not needed
+
+Derek Lesho (1):
+
+- zink: Catch all prior updates to source valid_buffer_range.
+
+Dmitry Baryshkov (7):
+
+- freedreno/common: flag a workaround for CP_DRAW_AUTO issue in a630_sqe
+- freedreno/registers: define format of the PC_AUTO_VERTEX_STRIDE register
+- freedreno/a6xx: workaround an issue in a630_sqe.fw
+- tu: workaround an issue in a630_sqe.fw
+- freedreno/a5xx: set the sample count before the GMEM restore blits
+- freedreno/a5xx: write the linear centroid interpolator regid
+- ir3: keep the msaa key for shaders that interpolate at gl_SampleID
+
+Dominique Belhachemi (1):
+
+- pco: fix workgroup barrier race when reused across loop iterations
+
+Dylan Baker (1):
+
+- intel/jay: Don't attempt to do work when there is none
+
+Eric Engestrom (3):
+
+- docs: add sha sum for 26.2.4
+- .pick_status.json: Update to 81dff7c64fb0c1f2031d04ccff9972233e2e0524
+- .pick_status.json: Mark a82ed85088954206fb1c30d016f18310fa614279 as denominated
+
+Eric R. Smith (1):
+
+- panfrost: fix UB in pan_csf pointer based type-punning
+
+Fabio Piparo (1):
+
+- vc4: don't reuse flags from before a thread switch
+
+Frank Binns (1):
+
+- pvr: fix for job samples being initialised to 0
+
+Frank Bouwer (1):
+
+- pvr: fix for multisampling with no attachments
+
+Georg Lehmann (4):
+
+- vtn: add an option to force exact GLSLstd450Fma
+- radv: add an option to force exact GLSLstd450Fma
+- radv: force exact GLSLstd450Fma for No Man Sky
+- aco: fix constant bus violation for scaled transcendental op
+
+Gustavo Noronha Silva (1):
+
+- venus: don't run a thread's TLS teardown from an unloaded driver
+
+Ian Romanick (1):
+
+- nir/algebraic: Don't generate 64-bit iadd3 when not supported
+
+Icenowy Zheng (2):
+
+- llvmpipe: do not call LLVMLinkInMCJIT() when using OrcJIT
+- meson: link in orcjit instead of mcjit when using OrcJIT
+
+Jade Macho (1):
+
+- gallium/sw: Fix llvmpipe being chosen when not wanted
+
+Jeongik Cha (1):
+
+- gfxstream: allow VK_EXT_vertex_attribute_divisor again
+
+Jordan Justen (2):
+
+- intel/gen/compact: Fix typo in Xe3P compact tables
+- intel/gen/compact: Fix UNCOMP_3SRC_SOURCE for Xe3P
+
+Karol Herbst (2):
+
+- rusticl/context: skip non SVM devices in clSVMAlloc
+- rusticl/platform: skip non SVM devices when creating the VM heap
+
+Konstantin Seurer (1):
+
+- radv: Align bvh to 128 bytes on GFX12
+
+Leon Seemann (1):
+
+- zink: update the pipeline when only the vertex input state changes
+
+Lionel Landwerlin (4):
+
+- anv: fix dynamic buffer base offset upload
+- anv: store availabilty before writing partial results
+- anv: fence MI availabilty writes
+- anv: track the query pool copies for resets
+
+Lokbondo Kung (1):
+
+- llvmpipe: fix ubsan shift exponent too large error
+
+Lucie Hartmann (1):
+
+- gallivm: Query host CPU features on aarch64 too
+
+Marek Olšák (1):
+
+- radv: fix to use HTILE fills instead of RMW shaders to restore previous behavior
+
+Mary Guillemard (3):
+
+- nvk/nvkmd: handle exec_count == 0 in nvkmd_nouveau_exec_ctx_exec
+- nouveau/mme: Add dependency on mthd for DREAD/DWRITE
+- nouveau/mme: Fix scratch_share_3d_to_compute test
+
+Matt Turner (9):
+
+- gallivm: don't use the s3tc and rgtc JIT decoders on big-endian
+- gallivm: pick the right lane for image stores wider than 32 bits on big-endian
+- gallivm: fix first_active_invocation() on big-endian
+- gallivm: fix unpack_64_2x32_split for scalars on big-endian
+- gallivm: only use vmaxfp for 32-bit floats
+- gallivm: don't use vminfp and vmaxfp when NaN operands must be ignored
+- gallivm: use VSX for rounding when available
+- gallivm: don't use vminfp and vmaxfp when VSX is available
+- nir, glsl, gallium: keep the halves of lowered 64-bit IO in memory order
+
+Matthieu Moatti (1):
+
+- pan/bi: Restore VA_MEMORY_ACCESS_FORCE for spills and refills
+
+Mike Blumenkrantz (27):
+
+- zink/kopper: fix check for async presents
+- zink/kopper: wait on async presents when updating swapchain
+- zink/kopper: stop leaking swapchains harder
+- zink/kopper: do a full glthread/tc sync when setting swap interval
+- zink/kopper: use the actual current image extent when setting swap interval
+- zink: return on flush_frontbuffer if swapchain is kill
+- zink/kopper: fix return value in acquire
+- kopper: move event selection for present into kopperGetSyncValues
+- zink/kopper: add locking around ANI and QP
+- zink/kopper: fix invalid read during swapchain teardown
+- util/texcompress_rgtc: zero-initialize encode variables
+- zink/sync: plug an extremely tricky hole in reordering logic
+- util/disk_cache: only subtract an evicted item if unlink succeeded
+- util/disk_cache: put guard pages around the index mapping
+- util/disk_cache: return whether evict_lru_item removed a file
+- util/disk_cache: recompute an impossible size counter on open
+- util/disk_cache: recompute the size when eviction cannot help
+- util/disk_cache: remove stale .tmp files when recomputing the size
+- st/pbo: skip delete_compute_state for shaders never created
+- zink: clear the generated tcs nir pointer after it is freed
+- zink: check unflushed under the usage mutex in the unflushed wait
+- zink: take ralloc_lock around screen-parented rallocs
+- zink: stop parenting the screen's semaphore arrays to the screen
+- zink: serialize unthreaded batch submission per screen
+- zink: force sync after unbind, even with GENERAL layouts
+- zink: ensure descriptor buffers stay mappable without BAR alloc
+- zink: avoid constantly failing BAR allocations on systems without ReBAR
+
+Mikhail Mlhcnn (2):
+
+- util/tc: reset end_call when rp info is reused after sync
+- util/tc: fix buffer over-read and thread race in staging texture_subdata
+
+Nikita Konton (1):
+
+- radeonsi: invalidate I$/SMEM$/VMEM$ at IB start on all gfx levels
+
+Olivia Lee (1):
+
+- panvk: fix null pointer dereference in GetInstanceProcAddr
+
+Omar Rashwan (2):
+
+- nir/instr_set: compare tex def when CSEing texture instructions
+- nir/instr_set: compare tex dest_type instead of bit size when CSEing texture instructions
+
+Peter Quayle (1):
+
+- pvr: fix stream-out PDS data size units in CSB dump
+
+Pierre-Eric Pelloux-Prayer (3):
+
+- radeonsi: remove invalid assert
+- radeonsi/gfx12: dont set BO metadata on import
+- winsys/amdgpu: fix import/destroy race again
+
+Rob Clark (1):
+
+- freedreno/common: Fix a702 chip-id
+
+Samuel Pitoiset (4):
+
+- radv/rt: fix checking errors for imported binaries
+- radv/rt: fix importing pipeline binaries
+- radv/nir: fix determining if a VS input location is high 64-bit
+- radv/amdgpu: unmap the first page used to implement VM padding
+
+Simon Perretta (1):
+
+- pco: temporarily disable vtxin allocation due to vec handling bug
+
+Thong Thai (1):
+
+- driconf: Add ignore_map_invalidate_buffer option
+
+Timothy Arceri (5):
+
+- radeonsi: correctly detect and set mesh shaders as dirty
+- radeonsi: widen bind_history bitfield
+- gallium/tc/zink: widen rebind_mask to support use by mesh shaders
+- zink: fix rebinding support for mesh shaders
+- util/format: fix typo in the BPTC compressor
+
+Vinson Lee (1):
+
+- egl: Fix int-to-void-pointer-cast warning on macOS
+
+matthewperiut (1):
+
+- venus: skip virtio-gpu devices without 3D
+
+mitul72 (1):
+
+- radv: Clear stale vertex user SGPR state when binding mesh shaders
+
+soka (1):
+
+- zink: check the primitive type after zink_batch_rp()

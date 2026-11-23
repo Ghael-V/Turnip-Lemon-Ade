@@ -1,0 +1,2 @@
+packaging==26.0
+urwid==3.0.3

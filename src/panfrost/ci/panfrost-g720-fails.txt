@@ -1,0 +1,6 @@
+# Warning!
+# --------
+# G720 results aren't regularly updated, this is just kept around as a "best
+# effort" reference of what we expect the results to be.
+
+dEQP-VK.glsl.loops.special.do_while_dynamic_iterations.dowhile_trap_vertex,Crash

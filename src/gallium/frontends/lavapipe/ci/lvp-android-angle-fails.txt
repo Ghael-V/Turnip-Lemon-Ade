@@ -1,0 +1,8 @@
+# Lavapipe bug with ANGLE
+dEQP-EGL.functional.fence_sync.valid.egl_fence_persistent_buffer,Fail
+dEQP-EGL.functional.robustness.reset_context.shaders.out_of_bounds_non_robust.reset_status.reads.uniform_block.compute,Crash
+dEQP-EGL.functional.robustness.reset_context.shaders.out_of_bounds_non_robust.reset_status.reads.uniform_block.fragment,Crash
+dEQP-EGL.functional.robustness.reset_context.shaders.out_of_bounds_non_robust.reset_status.reads.uniform_block.vertex_and_fragment,Crash
+dEQP-EGL.functional.robustness.reset_context.shaders.out_of_bounds_non_robust.reset_status.writes.local_array.compute,Crash
+dEQP-EGL.functional.robustness.reset_context.shaders.out_of_bounds_non_robust.reset_status.writes.shader_storage_block.compute,Crash
+dEQP-EGL.functional.robustness.reset_context.shaders.out_of_bounds_non_robust.reset_status.writes.uniform_block.compute,Crash

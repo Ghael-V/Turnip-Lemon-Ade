@@ -1,0 +1,28 @@
+# Note: flakes lists for CI are just a list of lines that, when
+# non-zero-length and not starting with '#', will regex match to
+# delete lines from the test list.  Be careful.
+
+# unstable results once we enabled SMP -- some state not being reset reliably?
+dEQP-GLES3.functional.transform_feedback.*
+
+# First appeared 2021-06-11 on an unrelated MR.
+dEQP-GLES31.functional.image_load_store.3d.load_store.*_single_layer
+
+glx@glx_arb_sync_control@swapbuffersmsc-divisor-zero
+glx@glx_arb_sync_control@waitformsc
+
+# Intermittent failure, mostly passes but sometimes fails. Was noticed on May 26th.
+spec@ext_image_dma_buf_import@ext_image_dma_buf_import-sample_ayuv
+spec@ext_image_dma_buf_import@ext_image_dma_buf_import-sample_nv12
+spec@ext_image_dma_buf_import@ext_image_dma_buf_import-sample_nv21
+spec@ext_image_dma_buf_import@ext_image_dma_buf_import-sample_y410
+spec@ext_image_dma_buf_import@ext_image_dma_buf_import-sample_yvu420
+
+# ci-collate: Issue found in https://gitlab.freedesktop.org/mesa/mesa/-/jobs/49445812
+KHR-GLES31.core.compute_shader.simple-compute-shared_context
+
+# uprev Piglit in Mesa
+glx@glx_ext_no_config_context@no fbconfig
+KHR-GLES31.core.compute_shader.simple-compute-shared_context-persistent-buffer
+spec@egl 1.4@egl-arb-sync-shared-context threaded
+

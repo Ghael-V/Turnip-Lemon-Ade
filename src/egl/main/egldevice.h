@@ -1,0 +1,110 @@
+/**************************************************************************
+ *
+ * Copyright 2015, 2018 Collabora
+ * All Rights Reserved.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a
+ * copy of this software and associated documentation files (the
+ * "Software"), to deal in the Software without restriction, including
+ * without limitation the rights to use, copy, modify, merge, publish,
+ * distribute, sub license, and/or sell copies of the Software, and to
+ * permit persons to whom the Software is furnished to do so, subject to
+ * the following conditions:
+ *
+ * The above copyright notice and this permission notice (including the
+ * next paragraph) shall be included in all copies or substantial portions
+ * of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
+ * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+ * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+ * DEALINGS IN THE SOFTWARE.
+ *
+ **************************************************************************/
+
+#ifndef EGLDEVICE_INCLUDED
+#define EGLDEVICE_INCLUDED
+
+#include <stdbool.h>
+#include <stddef.h>
+#ifdef HAVE_LIBDRM
+#include <xf86drm.h>
+#endif
+
+#include <EGL/egl.h>
+#include <EGL/eglext.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+extern struct _egl_device _eglSoftwareDevice;
+
+void
+_eglFiniDevice(void);
+
+EGLBoolean
+_eglCheckDeviceHandle(EGLDeviceEXT device);
+
+static inline struct _egl_device *
+_eglLookupDevice(EGLDeviceEXT device)
+{
+   struct _egl_device *dev = (struct _egl_device *)device;
+   if (!_eglCheckDeviceHandle(device))
+      dev = NULL;
+   return dev;
+}
+
+struct _egl_device *
+_eglFindDevice(int fd, bool software);
+
+enum _egl_device_extension {
+   _EGL_DEVICE_SOFTWARE,
+   _EGL_DEVICE_DRM,
+   _EGL_DEVICE_DRM_RENDER_NODE,
+   _EGL_DEVICE_QUERY_NAME,
+   _EGL_DEVICE_PERSISTENT_ID,
+   _EGL_DEVICE_TYPE,
+};
+
+#ifdef HAVE_LIBDRM
+drmDevicePtr
+_eglDeviceDrm(struct _egl_device *dev);
+#else
+#define _eglDeviceDrm(dev) NULL
+#endif
+
+struct _egl_device *
+_eglDeviceNext(struct _egl_device *dev);
+
+EGLBoolean
+_eglDeviceSupports(struct _egl_device *dev, enum _egl_device_extension ext);
+
+int
+_eglDeviceRefreshList(void);
+
+EGLBoolean
+_eglQueryDeviceAttribEXT(struct _egl_device *dev, EGLint attribute, EGLAttrib *value);
+
+const char *
+_eglQueryDeviceStringEXT(struct _egl_device *dev, EGLint name);
+
+EGLBoolean
+_eglQueryDevicesEXT(EGLint max_devices, struct _egl_device **devices,
+                    EGLint *num_devices);
+
+EGLBoolean
+_eglQueryDeviceBinaryEXT(struct _egl_device* dev,
+                         EGLint name,
+                         EGLint max_size,
+                         void *value,
+                         EGLint *size);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* EGLDEVICE_INCLUDED */

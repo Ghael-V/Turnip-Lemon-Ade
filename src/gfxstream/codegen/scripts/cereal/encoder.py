@@ -1,0 +1,764 @@
+# Copyright 2018 Google LLC
+# SPDX-License-Identifier: MIT
+import copy
+import re
+
+from .common.codegen import CodeGen, VulkanWrapperGenerator
+from .common.vulkantypes import \
+        VulkanAPI, makeVulkanTypeSimple, iterateVulkanType
+
+from .marshaling import VulkanMarshalingCodegen
+from .reservedmarshaling import VulkanReservedMarshalingCodegen
+from .counting import VulkanCountingCodegen, coalesce_counts
+from .handlemap import HandleMapCodegen
+from .deepcopy import DeepcopyCodegen, VULKAN_TYPES_THAT_ARE_NEVER_TRANSMITTED
+from .transform import TransformCodegen, genTransformsForVulkanType
+
+from .wrapperdefs import API_PREFIX_RESERVEDMARSHAL
+from .wrapperdefs import API_PREFIX_MARSHAL
+from .wrapperdefs import API_PREFIX_UNMARSHAL
+from .wrapperdefs import ROOT_TYPE_DEFAULT_VALUE
+from .wrapperdefs import VULKAN_STREAM_TYPE_GUEST
+
+encoder_decl_preamble = """
+
+class VkEncoder {
+public:
+    VkEncoder(gfxstream::guest::IOStream* stream);
+    ~VkEncoder();
+
+#include "VkEncoder.h.inl"
+"""
+
+encoder_decl_postamble = """
+private:
+    class Impl;
+    std::unique_ptr<Impl> mImpl;
+};
+"""
+
+encoder_impl_preamble ="""
+
+using namespace gfxstream::vk;
+
+using gfxstream::aemu::BumpPool;
+
+#include "VkEncoder.cpp.inl"
+
+#define VALIDATE_RET(retType, success, validate) \\
+    retType goldfish_vk_validateResult = validate; \\
+    if (goldfish_vk_validateResult != success) { \\
+        if (!queueSubmitWithCommandsEnabled && doLock) this->unlock(); \\
+        return goldfish_vk_validateResult; \\
+    } \\
+
+#define VALIDATE_VOID(validate) \\
+    VkResult goldfish_vk_validateResult = validate; \\
+    if (goldfish_vk_validateResult != VK_SUCCESS) { \\
+        if (!queueSubmitWithCommandsEnabled && doLock) this->unlock(); \\
+        return; \\
+    } \\
+
+static inline uint8_t* reservePacket(VulkanStreamGuest* stream, uint32_t opcode, size_t count,
+                                     bool queueSubmitWithCommandsEnabled) {
+    uint32_t packetSize = 4 + 4 + (queueSubmitWithCommandsEnabled ? 4 : 0) + count;
+    uint8_t* streamPtr = stream->reserve(packetSize);
+    writeStreamVal(&streamPtr, opcode);
+    writeStreamVal(&streamPtr, packetSize);
+    if (queueSubmitWithCommandsEnabled) {
+        uint32_t seqno = ResourceTracker::nextSeqno();
+        writeStreamVal(&streamPtr, seqno);
+    }
+    return streamPtr;
+}
+
+static inline uint8_t* reserveCmdPacket(VulkanStreamGuest* stream, uint32_t opcode, size_t count,
+                                        bool queueSubmitWithCommandsEnabled) {
+    uint32_t packetSize = 4 + 4 + count - (queueSubmitWithCommandsEnabled ? 8 : 0);
+    uint8_t* streamPtr = stream->reserve(packetSize);
+    writeStreamVal(&streamPtr, opcode);
+    writeStreamVal(&streamPtr, packetSize);
+    return streamPtr;
+}
+
+static inline void clearPoolIfNeeded(uint32_t* encodeCount, BumpPool* pool,
+                                     VulkanStreamGuest* stream) {
+    if (++(*encodeCount) % POOL_CLEAR_INTERVAL == 0) {
+        pool->freeAll();
+        stream->clearPool();
+    }
+}
+
+"""
+
+STREAM = "stream"
+RESOURCES = "sResourceTracker"
+POOL = "pool"
+
+ENCODER_PREVALIDATED_APIS = [
+    "vkFlushMappedMemoryRanges",
+    "vkInvalidateMappedMemoryRanges",
+]
+
+ENCODER_CUSTOM_RESOURCE_PREPROCESS = [
+    "vkMapMemoryIntoAddressSpaceGOOGLE",
+    "vkDestroyDevice",
+]
+
+ENCODER_CUSTOM_RESOURCE_POSTPROCESS = [
+    "vkCreateInstance",
+    "vkCreateDevice",
+    "vkMapMemoryIntoAddressSpaceGOOGLE",
+    "vkGetPhysicalDeviceFeatures2",
+    "vkCreateDescriptorUpdateTemplate",
+    "vkCreateDescriptorUpdateTemplateKHR",
+    "vkGetPhysicalDeviceExternalSemaphoreProperties",
+]
+
+ENCODER_EXPLICIT_FLUSHED_APIS = [
+    "vkEndCommandBufferAsyncGOOGLE",
+    "vkQueueSubmitAsyncGOOGLE",
+    "vkQueueBindSparseAsyncGOOGLE",
+    "vkQueueWaitIdleAsyncGOOGLE",
+    "vkResetFencesAsyncGOOGLE",
+    "vkResetCommandPoolAsyncGOOGLE",
+    "vkResetDescriptorPoolAsyncGOOGLE",
+    "vkResetEventAsyncGOOGLE",
+    "vkQueueSignalReleaseImageANDROID",
+    "vkDestroyDevice",
+]
+
+SUCCESS_RET_TYPES = {
+    "VkResult" : "VK_SUCCESS",
+    "void" : None,
+    # TODO: Put up success results for other return types here.
+}
+
+ENCODER_THIS_PARAM = makeVulkanTypeSimple(False, "VkEncoder", 1, "this")
+
+# Common components of encoding a Vulkan API call
+def make_event_handler_call(
+    handler_access,
+    api,
+    context_param,
+    input_result_param,
+    cgen,
+    suffix=""):
+    extraParams = [context_param.paramName]
+    if input_result_param:
+        extraParams.append(input_result_param)
+    return cgen.makeCallExpr( \
+               "%s->on_%s%s" % (handler_access, api.name, suffix),
+               extraParams + \
+                       [p.paramName for p in api.parameters[:-1]])
+
+def emit_custom_pre_validate(typeInfo, api, cgen):
+    if api.name in ENCODER_PREVALIDATED_APIS:
+        callExpr = \
+            make_event_handler_call( \
+                "mImpl->validation()", api,
+                ENCODER_THIS_PARAM,
+                SUCCESS_RET_TYPES[api.getRetTypeExpr()],
+                cgen)
+
+        if api.getRetTypeExpr() == "void":
+            cgen.stmt("VALIDATE_VOID(%s)" % callExpr)
+        else:
+            cgen.stmt("VALIDATE_RET(%s, %s, %s)" % \
+                (api.getRetTypeExpr(),
+                 SUCCESS_RET_TYPES[api.getRetTypeExpr()],
+                 callExpr))
+
+def emit_custom_resource_preprocess(typeInfo, api, cgen):
+    if api.name in ENCODER_CUSTOM_RESOURCE_PREPROCESS:
+        callExpr = \
+            make_event_handler_call( \
+                "sResourceTracker", api,
+                ENCODER_THIS_PARAM,
+                SUCCESS_RET_TYPES[api.getRetTypeExpr()],
+                cgen, suffix="_pre")
+
+        if api.getRetTypeExpr() == "void":
+            cgen.stmt(callExpr)
+        else:
+            cgen.stmt("VALIDATE_RET(%s, %s, %s)" % \
+                (api.getRetTypeExpr(),
+                 SUCCESS_RET_TYPES[api.getRetTypeExpr()],
+                 callExpr))
+
+def emit_custom_resource_postprocess(typeInfo, api, cgen):
+    if api.name in ENCODER_CUSTOM_RESOURCE_POSTPROCESS:
+        callExpr = make_event_handler_call( \
+            "sResourceTracker",
+            api,
+            ENCODER_THIS_PARAM,
+            api.getRetVarExpr(),
+            cgen)
+        if api.name in ("vkCreateDescriptorUpdateTemplate", "vkCreateDescriptorUpdateTemplateKHR"):
+            cgen.stmt("%s = %s" % (api.getRetVarExpr(), callExpr))
+        else:
+            cgen.stmt(callExpr)
+
+def emit_count_marshal(typeInfo, param, cgen):
+    if param.typeName in VULKAN_TYPES_THAT_ARE_NEVER_TRANSMITTED:
+        cgen.stmt("count += 8")
+        return
+    res = \
+        iterateVulkanType(
+            typeInfo, param,
+            VulkanCountingCodegen( \
+                cgen, "sFeatureBits", param.paramName, "&count", ROOT_TYPE_DEFAULT_VALUE,
+               "count_"))
+    if not res:
+        cgen.stmt("(void)%s" % param.paramName)
+
+def emit_marshal(typeInfo, param, cgen):
+    if param.typeName in VULKAN_TYPES_THAT_ARE_NEVER_TRANSMITTED:
+        cgen.stmt("putBe64WithStreamPtr(&streamPtr, 0)")
+        return
+    forOutput = param.isHandleType() and ("out" in param.inout)
+
+    res = \
+        iterateVulkanType(
+            typeInfo, param,
+            VulkanReservedMarshalingCodegen( \
+                cgen, "guest", STREAM, ROOT_TYPE_DEFAULT_VALUE, param.paramName, "&streamPtr",
+               API_PREFIX_RESERVEDMARSHAL,
+               "" if forOutput else "gfxstream_to_host_u64",
+               direction="write"))
+    if not res:
+        cgen.stmt("(void)%s" % param.paramName)
+
+def get_gfxstream_vk_type_name(vk_type_name):
+    return "gfxstream_" + re.sub(r'(?<!^)(?=[A-Z][a-z]|(?<=[a-z])[A-Z])', '_', vk_type_name).lower()
+
+def emit_unmarshal(typeInfo, param, cgen, api=None):
+    iterateVulkanType(
+        typeInfo, param,
+        VulkanMarshalingCodegen( \
+            cgen, STREAM, ROOT_TYPE_DEFAULT_VALUE, param.paramName,
+           API_PREFIX_UNMARSHAL, direction="read", action=param.action, variant="guest", api=api))
+
+def emit_deepcopy(typeInfo, param, cgen):
+    res = \
+        iterateVulkanType(typeInfo, param, DeepcopyCodegen(
+            cgen, [param.paramName, "local_" + param.paramName], "pool", ROOT_TYPE_DEFAULT_VALUE, "deepcopy_"))
+    if not res:
+        cgen.stmt("(void)%s" % param.paramName)
+
+def emit_transform(typeInfo, param, cgen, variant="tohost"):
+    iterateVulkanType(typeInfo, param, TransformCodegen( \
+        cgen, param.paramName, "sResourceTracker", "transform_%s_" % variant, variant))
+
+def param_needs_transform(typeInfo, param):
+    if typeInfo is None:
+        return True
+    if param.pointerIndirectionLevels == 0 and not typeInfo.isCompoundType(param.typeName):
+        return False
+    testCgen = CodeGen()
+    genTransformsForVulkanType(
+        "sResourceTracker", param,
+        lambda p: testCgen.generalAccess(p, parentVarName=None, asPtr=True),
+        lambda p: testCgen.generalLengthAccess(p, parentVarName=None),
+        testCgen)
+    emit_transform(typeInfo, param, testCgen, variant="tohost")
+    return testCgen.swapCode() != ""
+
+def emit_handlemap_create(typeInfo, param, cgen):
+    iterateVulkanType(typeInfo, param, HandleMapCodegen(
+        cgen, None, "sResourceTracker", "handlemap_",
+        lambda vtype: typeInfo.isHandleType(vtype.typeName)
+    ))
+
+def custom_encoder_args(api):
+    params = ["this"]
+    if api.getRetVarExpr() is not None:
+        params.append(api.getRetVarExpr())
+    return params
+
+NEEDS_UNREGISTER_TYPES = {
+    "VkCommandPool",
+    "VkCommandBuffer",
+    "VkQueue",
+    "VkDeviceMemory",
+    "VkSemaphore",
+    "VkFence",
+}
+
+def get_destroy_call_args(param_type_name, elem_expr, api):
+    alloc_expr = "nullptr"
+    if api is not None:
+        for p in api.parameters:
+            if p.typeName == "VkAllocationCallbacks":
+                alloc_expr = p.paramName
+                break
+    if param_type_name in ("VkInstance", "VkDevice"):
+        return "(%s, %s)" % (elem_expr, alloc_expr)
+    if param_type_name == "VkCommandBuffer":
+        alloc_expr = "&gfxstream_vk_command_pool_from_handle(commandPool)->base.alloc"
+    return "(%s, %s, %s)" % (api.parameters[0].paramName, elem_expr, alloc_expr)
+
+def emit_handlemap_destroy(typeInfo, param, cgen, api=None):
+    gfxstreamType = get_gfxstream_vk_type_name(param.typeName)
+    needsUnregister = param.typeName in NEEDS_UNREGISTER_TYPES
+    if param.pointerIndirectionLevels > 0:
+        lenAccess = cgen.generalLengthAccess(param, parentVarName=None)
+        cgen.beginIf(param.paramName)
+        if lenAccess and lenAccess != "1":
+            cgen.beginFor("uint32_t i = 0", "i < %s" % lenAccess, "++i")
+            elemExpr = "%s[i]" % param.paramName
+            if needsUnregister:
+                cgen.stmt("sResourceTracker->unregister_%s(%s)" % (param.typeName, elemExpr))
+            cgen.stmt("delete_%s%s" % (gfxstreamType, get_destroy_call_args(param.typeName, elemExpr, api)))
+            cgen.endFor()
+        else:
+            elemExpr = "*%s" % param.paramName
+            if needsUnregister:
+                cgen.stmt("sResourceTracker->unregister_%s(%s)" % (param.typeName, elemExpr))
+            cgen.stmt("delete_%s%s" % (gfxstreamType, get_destroy_call_args(param.typeName, elemExpr, api)))
+        cgen.endIf()
+    else:
+        if needsUnregister:
+            cgen.stmt("sResourceTracker->unregister_%s(%s)" % (param.typeName, param.paramName))
+        cgen.stmt("delete_%s%s" % (gfxstreamType, get_destroy_call_args(param.typeName, param.paramName, api)))
+
+class EncodingParameters(object):
+    def __init__(self, api, typeInfo=None, customUnwrap=None):
+        self.localCopied = []
+        self.toWrite = []
+        self.toRead = []
+        self.toCreate = []
+        self.toDestroy = []
+
+        devMemIndices = set()
+        if api.deviceMemoryInfoParameterIndices:
+            for _, info in api.deviceMemoryInfoParameterIndices.items():
+                for k in ["handle", "offset", "size", "typeIndex", "typeBits"]:
+                    idx = info.__dict__.get(k)
+                    if idx is not None:
+                        devMemIndices.add(idx)
+
+        for i, param in enumerate(api.parameters):
+            param.action = None
+            param.inout = "in"
+
+            if param.paramName == "doLock":
+                continue
+
+            if param.possiblyOutput():
+                param.inout += "out"
+                self.toWrite.append(param)
+                self.toRead.append(param)
+                if param.isCreatedBy(api):
+                    self.toCreate.append(param)
+                    param.action = "create"
+            else:
+                if param.isDestroyedBy(api):
+                    self.toDestroy.append(param)
+                    param.action = "destroy"
+                needsLocalCopy = (
+                    param.typeName not in VULKAN_TYPES_THAT_ARE_NEVER_TRANSMITTED and (
+                        (customUnwrap is not None and param.paramName in customUnwrap) or
+                        (i in devMemIndices) or
+                        param_needs_transform(typeInfo, param)
+                    )
+                )
+                if needsLocalCopy:
+                    localCopyParam = \
+                        param.getForNonConstAccess().withModifiedName( \
+                            "local_" + param.paramName)
+                    self.localCopied.append((param, localCopyParam))
+                    self.toWrite.append(localCopyParam)
+                else:
+                    self.toWrite.append(param)
+
+def emit_parameter_encode_preamble_write(typeInfo, api, cgen, customUnwrap=None):
+    emit_custom_pre_validate(typeInfo, api, cgen)
+    emit_custom_resource_preprocess(typeInfo, api, cgen)
+
+    cgen.stmt("auto %s = mImpl->stream()" % STREAM)
+
+    encodingParams = EncodingParameters(api, typeInfo, customUnwrap)
+    needsPool = any(
+        orig.pointerIndirectionLevels > 0 and
+        not (customUnwrap and orig.paramName in customUnwrap and "copyOp" in customUnwrap[orig.paramName]) and
+        param_needs_transform(typeInfo, orig)
+        for (orig, _) in encodingParams.localCopied
+    )
+    if needsPool:
+        cgen.stmt("auto %s = mImpl->pool()" % POOL)
+
+    for (origParam, localCopyParam) in encodingParams.localCopied:
+        decl = cgen.makeRichCTypeDecl(localCopyParam)
+        if localCopyParam.pointerIndirectionLevels > 0:
+            cgen.stmt("%s = nullptr" % decl)
+        elif not localCopyParam.staticArrExpr:
+            cgen.stmt("%s = %s" % (decl, origParam.paramName))
+        else:
+            cgen.stmt(decl)
+
+def emit_parameter_encode_copy_unwrap_count(typeInfo, api, cgen, customUnwrap=None):
+    encodingParams = EncodingParameters(api, typeInfo, customUnwrap)
+
+    for (origParam, localCopyParam) in encodingParams.localCopied:
+        shouldCustomCopy = \
+            customUnwrap and \
+            origParam.paramName in customUnwrap and \
+            "copyOp" in customUnwrap[origParam.paramName]
+
+        if shouldCustomCopy:
+            customUnwrap[origParam.paramName]["copyOp"](cgen, origParam, localCopyParam)
+        else:
+            avoidDeepcopy = False
+            if origParam.pointerIndirectionLevels > 0 and not param_needs_transform(typeInfo, origParam):
+                avoidDeepcopy = True
+            if avoidDeepcopy:
+                cgen.stmt("%s = (%s%s)%s" % (localCopyParam.paramName, localCopyParam.typeName, "*" * origParam.pointerIndirectionLevels, origParam.paramName))
+            else:
+                emit_deepcopy(typeInfo, origParam, cgen)
+
+    for (origParam, localCopyParam) in encodingParams.localCopied:
+        shouldCustomMap = \
+            customUnwrap and \
+            origParam.paramName in customUnwrap and \
+            "mapOp" in customUnwrap[origParam.paramName]
+
+        if shouldCustomMap:
+            customUnwrap[origParam.paramName]["mapOp"](cgen, origParam, localCopyParam)
+
+    apiForTransform = api.withCustomParameters(encodingParams.toWrite)
+
+    # Apply transforms if applicable.
+    # Apply transform to API itself:
+    genTransformsForVulkanType(
+        "sResourceTracker",
+        apiForTransform,
+        lambda p: cgen.generalAccess(p, parentVarName = None, asPtr = True),
+        lambda p: cgen.generalLengthAccess(p, parentVarName = None),
+        cgen)
+
+    # For all local copied parameters, run the transforms
+    for (_, localParam) in encodingParams.localCopied:
+        emit_transform(typeInfo, localParam, cgen, variant="tohost")
+
+    cgen.stmt("size_t count = 0")
+
+    # Use counting stream to calculate the packet size.
+    for p in encodingParams.toWrite:
+        emit_count_marshal(typeInfo, p, cgen)
+
+def is_cmdbuf_dispatch(api):
+    return "VkCommandBuffer" == api.parameters[0].typeName
+
+def emit_parameter_encode_write_packet_info(typeInfo, api, cgen):
+    if is_cmdbuf_dispatch(api):
+        cgen.stmt("uint8_t* streamPtr = reserveCmdPacket(%s, OP_%s, count, queueSubmitWithCommandsEnabled)" % (STREAM, api.name))
+    else:
+        cgen.stmt("uint8_t* streamPtr = reservePacket(%s, OP_%s, count, queueSubmitWithCommandsEnabled)" % (STREAM, api.name))
+
+def emit_parameter_encode_do_parameter_write(typeInfo, api, cgen, customUnwrap=None):
+    encodingParams = EncodingParameters(api, typeInfo, customUnwrap)
+
+    dispatchDone = False
+
+    for p in encodingParams.toWrite:
+        if is_cmdbuf_dispatch(api) and not dispatchDone:
+            cgen.beginIf("!queueSubmitWithCommandsEnabled")
+            emit_marshal(typeInfo, p, cgen)
+            cgen.endIf()
+        else:
+            emit_marshal(typeInfo, p, cgen)
+
+        dispatchDone = True
+
+def emit_parameter_encode_read(typeInfo, api, cgen):
+    encodingParams = EncodingParameters(api, typeInfo)
+    createParams = [p for p in encodingParams.toRead if p.action == "create"]
+    if createParams and (api.getRetTypeExpr() == "VkResult" or
+                         any("len" in p.attribs and p.attribs["len"] != "1" for p in createParams)):
+        cgen.stmt("bool guestCreateAllocFailed = false")
+
+    for p in encodingParams.toRead:
+        emit_unmarshal(typeInfo, p, cgen, api=api)
+        emit_transform(typeInfo, p, cgen, variant="fromhost")
+
+def emit_post(typeInfo, api, cgen):
+    encodingParams = EncodingParameters(api, typeInfo)
+
+    doSeqno = True
+    if is_cmdbuf_dispatch(api):
+        doSeqno = False
+
+    retType = api.getRetTypeExpr()
+
+    if api.name in ENCODER_EXPLICIT_FLUSHED_APIS:
+        cgen.stmt("stream->flush()")
+    elif doSeqno:
+        if retType == "void":
+            if 0 == len(encodingParams.toRead):
+                cgen.stmt("stream->flush()")
+
+    emit_custom_resource_postprocess(typeInfo, api, cgen)
+
+    for p in encodingParams.toDestroy:
+        emit_handlemap_destroy(typeInfo, p, cgen, api=api)
+
+def emit_pool_free(cgen):
+    cgen.stmt("clearPoolIfNeeded(&encodeCount, mImpl->pool(), %s)" % STREAM)
+
+def emit_return_unmarshal(typeInfo, api, cgen):
+
+    retType = api.getRetTypeExpr()
+
+    if retType == "void":
+        return
+
+    retVar = api.getRetVarExpr()
+    cgen.stmt("%s %s = (%s)0" % (retType, retVar, retType))
+    cgen.stmt("%s->read(&%s, %s)" % \
+              (STREAM, retVar, cgen.sizeofExpr(api.retType)))
+    encodingParams = EncodingParameters(api, typeInfo)
+    if retType == "VkResult" and any(p.action == "create" for p in encodingParams.toRead):
+        cgen.beginIf("guestCreateAllocFailed && %s >= VK_SUCCESS" % retVar)
+        cgen.stmt("%s = VK_ERROR_OUT_OF_HOST_MEMORY" % retVar)
+        cgen.endIf()
+
+def emit_return(typeInfo, api, cgen):
+    if api.getRetTypeExpr() == "void":
+        return
+
+    retVar = api.getRetVarExpr()
+    cgen.stmt("return %s" % retVar)
+
+def emit_lock(cgen):
+    cgen.stmt("bool queueSubmitWithCommandsEnabled = sFeatureBits & VULKAN_STREAM_FEATURE_QUEUE_SUBMIT_WITH_COMMANDS_BIT")
+    cgen.stmt("if (!queueSubmitWithCommandsEnabled && doLock) this->lock()")
+
+def emit_unlock(cgen):
+    cgen.stmt("if (!queueSubmitWithCommandsEnabled && doLock) this->unlock()")
+
+def emit_debug_log(typeInfo, api, cgen):
+    logFormat = []
+    logVargs = []
+    for param in api.parameters:
+        if param.paramName == "doLock":
+            continue
+
+        paramFormatSpecifier = param.getPrintFormatSpecifier()
+        if not paramFormatSpecifier:
+            continue
+
+        logFormat.append(param.paramName + ":" + paramFormatSpecifier)
+        logVargs.append(param.paramName)
+
+    logFormatStr = ", ".join(logFormat)
+    logVargsStr = ", ".join(logVargs)
+
+def emit_default_encoding(typeInfo, api, cgen):
+    emit_debug_log(typeInfo, api, cgen)
+    emit_lock(cgen)
+    emit_parameter_encode_preamble_write(typeInfo, api, cgen)
+    emit_parameter_encode_copy_unwrap_count(typeInfo, api, cgen)
+    emit_parameter_encode_write_packet_info(typeInfo, api, cgen)
+    emit_parameter_encode_do_parameter_write(typeInfo, api, cgen)
+    emit_parameter_encode_read(typeInfo, api, cgen)
+    emit_return_unmarshal(typeInfo, api, cgen)
+    emit_post(typeInfo, api, cgen)
+    emit_pool_free(cgen)
+    emit_unlock(cgen)
+    emit_return(typeInfo, api, cgen)
+
+## Custom encoding definitions##################################################
+
+def emit_only_goldfish_custom(typeInfo, api, cgen):
+    emit_lock(cgen)
+    cgen.vkApiCall( \
+        api,
+        customPrefix="sResourceTracker->on_",
+        customParameters=custom_encoder_args(api) + \
+                [p.paramName for p in api.parameters[:-1]])
+    emit_unlock(cgen)
+    emit_return(typeInfo, api, cgen)
+
+def emit_only_resource_event(typeInfo, api, cgen):
+    cgen.stmt("(void)doLock");
+    input_result = None
+    retExpr = api.getRetVarExpr()
+
+    if retExpr:
+        retType = api.getRetTypeExpr()
+        input_result = SUCCESS_RET_TYPES[retType]
+        cgen.stmt("%s %s = (%s)0" % (retType, retExpr, retType))
+
+    cgen.stmt(
+        (("%s = " % retExpr) if retExpr else "") +
+        make_event_handler_call(
+            "sResourceTracker",
+            api,
+            ENCODER_THIS_PARAM,
+            input_result, cgen))
+
+    if retExpr:
+        emit_return(typeInfo, api, cgen)
+
+def emit_with_custom_unwrap(custom):
+    def call(typeInfo, api, cgen):
+        emit_lock(cgen)
+        emit_parameter_encode_preamble_write(typeInfo, api, cgen, customUnwrap=custom)
+        emit_parameter_encode_copy_unwrap_count(
+            typeInfo, api, cgen, customUnwrap=custom)
+        emit_parameter_encode_write_packet_info(typeInfo, api, cgen)
+        emit_parameter_encode_do_parameter_write(typeInfo, api, cgen, customUnwrap=custom)
+        emit_parameter_encode_read(typeInfo, api, cgen)
+        emit_return_unmarshal(typeInfo, api, cgen)
+        emit_pool_free(cgen)
+        emit_unlock(cgen)
+        emit_return(typeInfo, api, cgen)
+    return call
+
+def encode_vkFlushMappedMemoryRanges(typeInfo, api, cgen):
+    emit_lock(cgen)
+    emit_parameter_encode_preamble_write(typeInfo, api, cgen)
+    emit_parameter_encode_copy_unwrap_count(typeInfo, api, cgen)
+
+    def emit_flush_ranges(streamVar):
+        cgen.beginIf("!sResourceTracker->usingDirectMapping()")
+        cgen.beginFor("uint32_t i = 0", "i < memoryRangeCount", "++i")
+        cgen.stmt("auto range = pMemoryRanges[i]")
+        cgen.stmt("auto memory = range.memory")
+        cgen.stmt("auto size = range.size")
+        cgen.stmt("auto offset = range.offset")
+        cgen.stmt("uint64_t streamSize = 0")
+        cgen.stmt("if (!memory) { %s->write(&streamSize, sizeof(uint64_t)); continue; }" % streamVar)
+        cgen.stmt("auto hostPtr = gfxstream_vk_device_memory_get_ptr(memory)")
+        cgen.stmt("auto actualSize = size == VK_WHOLE_SIZE ? gfxstream_vk_device_memory_get_ptr_size(memory) : size")
+        cgen.stmt("if (!hostPtr) { %s->write(&streamSize, sizeof(uint64_t)); continue; }" % streamVar)
+        cgen.stmt("streamSize = actualSize")
+        cgen.stmt("%s->write(&streamSize, sizeof(uint64_t))" % streamVar)
+        cgen.stmt("uint8_t* targetRange = hostPtr + offset")
+        cgen.stmt("%s->write(targetRange, actualSize)" % streamVar)
+        cgen.endFor()
+        cgen.endIf()
+
+    emit_parameter_encode_write_packet_info(typeInfo, api, cgen)
+    emit_parameter_encode_do_parameter_write(typeInfo, api, cgen)
+
+    emit_flush_ranges(STREAM)
+
+    emit_parameter_encode_read(typeInfo, api, cgen)
+    emit_return_unmarshal(typeInfo, api, cgen)
+    emit_pool_free(cgen)
+    emit_unlock(cgen)
+    emit_return(typeInfo, api, cgen)
+
+def encode_vkInvalidateMappedMemoryRanges(typeInfo, api, cgen):
+    emit_lock(cgen)
+    emit_parameter_encode_preamble_write(typeInfo, api, cgen)
+    emit_parameter_encode_copy_unwrap_count(typeInfo, api, cgen)
+    emit_parameter_encode_write_packet_info(typeInfo, api, cgen)
+    emit_parameter_encode_do_parameter_write(typeInfo, api, cgen)
+    emit_parameter_encode_read(typeInfo, api, cgen)
+    emit_return_unmarshal(typeInfo, api, cgen)
+
+    def emit_invalidate_ranges(streamVar):
+        cgen.beginIf("!sResourceTracker->usingDirectMapping()")
+        cgen.beginFor("uint32_t i = 0", "i < memoryRangeCount", "++i")
+        cgen.stmt("auto range = pMemoryRanges[i]")
+        cgen.stmt("auto memory = range.memory")
+        cgen.stmt("auto size = range.size")
+        cgen.stmt("auto offset = range.offset")
+        cgen.stmt("uint64_t streamSize = 0")
+        cgen.stmt("if (!memory) { %s->read(&streamSize, sizeof(uint64_t)); continue; }" % streamVar)
+        cgen.stmt("auto hostPtr = gfxstream_vk_device_memory_get_ptr(memory)")
+        cgen.stmt("auto actualSize = size == VK_WHOLE_SIZE ? gfxstream_vk_device_memory_get_ptr_size(memory) : size")
+        cgen.stmt("if (!hostPtr) { %s->read(&streamSize, sizeof(uint64_t)); continue; }" % streamVar)
+        cgen.stmt("streamSize = actualSize")
+        cgen.stmt("%s->read(&streamSize, sizeof(uint64_t))" % streamVar)
+        cgen.stmt("uint8_t* targetRange = hostPtr + offset")
+        cgen.stmt("%s->read(targetRange, actualSize)" % streamVar)
+        cgen.endFor()
+        cgen.endIf()
+
+    emit_invalidate_ranges(STREAM)
+    emit_pool_free(cgen)
+    emit_unlock(cgen)
+    emit_return(typeInfo, api, cgen)
+
+def emit_manual_inline(typeInfo, api, cgen):
+    cgen.line("#include \"%s_encode_impl.cpp.inl\"" % api.name)
+
+def unwrap_vkCreateImage_pCreateInfo():
+    def mapOp(cgen, orig, local):
+        cgen.stmt("sResourceTracker->unwrap_vkCreateImage_pCreateInfo(%s, %s)" %
+                  (orig.paramName, local.paramName))
+    return { "pCreateInfo" : { "mapOp" : mapOp } }
+
+def unwrap_vkBindImageMemory2_pBindInfos():
+    def mapOp(cgen, orig, local):
+        cgen.stmt("sResourceTracker->unwrap_VkBindImageMemory2_pBindInfos(bindInfoCount, %s, %s)" %
+                  (orig.paramName, local.paramName))
+    return { "pBindInfos" : { "mapOp" : mapOp } }
+
+def unwrap_vkAcquireImageANDROID_nativeFenceFd():
+    def mapOp(cgen, orig, local):
+        cgen.stmt("sResourceTracker->unwrap_vkAcquireImageANDROID_nativeFenceFd(%s, &%s)" %
+                  (orig.paramName, local.paramName))
+    return { "nativeFenceFd" : { "mapOp" : mapOp } }
+
+custom_encodes = {
+    "vkMapMemory" : emit_only_resource_event,
+    "vkUnmapMemory" : emit_only_resource_event,
+    "vkMapMemory2" : emit_only_resource_event,
+    "vkUnmapMemory2" : emit_only_resource_event,
+    "vkFlushMappedMemoryRanges" : encode_vkFlushMappedMemoryRanges,
+    "vkInvalidateMappedMemoryRanges" : encode_vkInvalidateMappedMemoryRanges,
+    "vkCreateImage" : emit_with_custom_unwrap(unwrap_vkCreateImage_pCreateInfo()),
+    "vkCreateImageWithRequirementsGOOGLE" : emit_with_custom_unwrap(unwrap_vkCreateImage_pCreateInfo()),
+    "vkBindImageMemory2": emit_with_custom_unwrap(unwrap_vkBindImageMemory2_pBindInfos()),
+    "vkAcquireImageANDROID" : emit_with_custom_unwrap(unwrap_vkAcquireImageANDROID_nativeFenceFd()),
+    "vkQueueFlushCommandsGOOGLE" : emit_manual_inline,
+}
+
+class VulkanEncoder(VulkanWrapperGenerator):
+    def __init__(self, module, typeInfo):
+        VulkanWrapperGenerator.__init__(self, module, typeInfo)
+
+        self.typeInfo = typeInfo
+
+        self.cgenHeader = CodeGen()
+        self.cgenHeader.incrIndent()
+
+        self.cgenImpl = CodeGen()
+
+    def onBegin(self,):
+        self.module.appendHeader(encoder_decl_preamble)
+        self.module.appendImpl(encoder_impl_preamble)
+
+    def onGenCmd(self, cmdinfo, name, alias):
+        VulkanWrapperGenerator.onGenCmd(self, cmdinfo, name, alias)
+
+        api = copy.deepcopy(self.typeInfo.apis[name])
+        api.parameters.append(makeVulkanTypeSimple(False, "uint32_t", 0, "doLock"))
+
+        self.cgenHeader.stmt(self.cgenHeader.makeFuncProto(api))
+        apiImpl = api.withModifiedName("VkEncoder::" + api.name)
+
+        self.module.appendHeader(self.cgenHeader.swapCode())
+
+        def emit_function_impl(cgen):
+            if api.name in custom_encodes.keys():
+                custom_encodes[api.name](self.typeInfo, api, cgen)
+            else:
+                emit_default_encoding(self.typeInfo, api, cgen)
+            if api.name != "vkQueueFlushCommandsGOOGLE":
+                bodyCode = coalesce_counts(cgen.swapCode())
+                for p in api.parameters:
+                    if not re.search(r'(?<![.>])\b' + re.escape(p.paramName) + r'\b', bodyCode):
+                        cgen.stmt("(void)%s" % p.paramName)
+                cgen.line(bodyCode.rstrip("\n"))
+
+        self.module.appendImpl(self.cgenImpl.makeFuncImpl(apiImpl, emit_function_impl))
+
+    def onEnd(self,):
+        self.module.appendHeader(encoder_decl_postamble)
+        self.cgenHeader.decrIndent()
