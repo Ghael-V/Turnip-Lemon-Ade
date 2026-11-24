@@ -13,8 +13,14 @@
 
 #include "util/format/u_format.h"
 #include "util/u_atomic.h"
+#include "util/u_call_once.h"
+
+#if DETECT_OS_ANDROID
+#include <android/hardware_buffer.h>
+#endif
 #include "util/u_debug.h"
 #include "vk_android.h"
+#include "vk_common_entrypoints.h"
 #include "vk_debug_utils.h"
 #include "vk_util.h"
 #include "vk_ycbcr_conversion.h"
@@ -1768,3 +1774,108 @@ tu_bind_sparse_image(struct tu_device *device, void *submit,
    }
 }
 
+
+#if DETECT_OS_ANDROID
+static bool tu_gralloc_ubwc_recognized;
+
+static void
+tu_probe_gralloc_ubwc(void)
+{
+   if (!vk_android_get_ugralloc())
+      return;
+
+   const AHardwareBuffer_Desc desc = {
+      .width = 64,
+      .height = 64,
+      .layers = 1,
+      .format = AHARDWAREBUFFER_FORMAT_R8G8B8A8_UNORM,
+      .usage = AHARDWAREBUFFER_USAGE_GPU_FRAMEBUFFER |
+               AHARDWAREBUFFER_USAGE_GPU_SAMPLED_IMAGE |
+               TU_GRALLOC_USAGE_PRIVATE_ALLOC_UBWC,
+   };
+   AHardwareBuffer *ahb = NULL;
+   if (AHardwareBuffer_allocate(&desc, &ahb) != 0)
+      return;
+
+   VkImageDrmFormatModifierExplicitCreateInfoEXT eci;
+   VkSubresourceLayout layouts[TU_MAX_PLANE_COUNT];
+   if (vk_android_get_ahb_layout(ahb, &eci, layouts, TU_MAX_PLANE_COUNT) ==
+       VK_SUCCESS)
+      tu_gralloc_ubwc_recognized =
+         eci.drmFormatModifier == DRM_FORMAT_MOD_QCOM_COMPRESSED;
+   AHardwareBuffer_release(ahb);
+}
+#endif
+
+bool
+tu_gralloc_ubwc_possible(const struct fd_dev_info *info, VkFormat format,
+                         VkImageTiling tiling, VkImageCreateFlags flags,
+                         VkImageUsageFlags usage)
+{
+   if (TU_DEBUG(NOUBWC) || !debug_get_bool_option("TU_GRALLOC_UBWC", true))
+      return false;
+
+   if (info->chip < A8XX ||
+       (format != VK_FORMAT_R8G8B8A8_UNORM &&
+        format != VK_FORMAT_R8G8B8A8_SRGB))
+      return false;
+
+#if DETECT_OS_ANDROID
+   static util_once_flag probe_once = UTIL_ONCE_FLAG_INIT;
+   util_call_once(&probe_once, tu_probe_gralloc_ubwc);
+   if (!tu_gralloc_ubwc_recognized)
+      return false;
+#else
+   return false;
+#endif
+
+   if (tiling != VK_IMAGE_TILING_OPTIMAL ||
+       ((flags & VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT) &&
+        !info->props.ubwc_all_formats_compatible) ||
+       !tiling_possible(format))
+      return false;
+
+   return ubwc_possible(NULL, format, VK_IMAGE_TYPE_2D, flags, usage, usage,
+                        info, VK_SAMPLE_COUNT_1_BIT, 1,
+                        info->props.has_z24uint_s8uint);
+}
+
+#if DETECT_OS_ANDROID
+
+VKAPI_ATTR VkResult VKAPI_CALL
+tu_GetSwapchainGrallocUsageANDROID(VkDevice _device, VkFormat format,
+                                   VkImageUsageFlags imageUsage,
+                                   int *grallocUsage)
+{
+   VK_FROM_HANDLE(tu_device, device, _device);
+
+   VkResult result = vk_common_GetSwapchainGrallocUsageANDROID(
+      _device, format, imageUsage, grallocUsage);
+   if (result == VK_SUCCESS &&
+       tu_gralloc_ubwc_possible(device->physical_device->info, format,
+                                VK_IMAGE_TILING_OPTIMAL, 0, imageUsage))
+      *grallocUsage |= (int) TU_GRALLOC_USAGE_PRIVATE_ALLOC_UBWC;
+
+   return result;
+}
+
+VKAPI_ATTR VkResult VKAPI_CALL
+tu_GetSwapchainGrallocUsage2ANDROID(
+   VkDevice _device, VkFormat format, VkImageUsageFlags imageUsage,
+   VkSwapchainImageUsageFlagsANDROID swapchainImageUsage,
+   uint64_t *grallocConsumerUsage, uint64_t *grallocProducerUsage)
+{
+   VK_FROM_HANDLE(tu_device, device, _device);
+
+   VkResult result = vk_common_GetSwapchainGrallocUsage2ANDROID(
+      _device, format, imageUsage, swapchainImageUsage, grallocConsumerUsage,
+      grallocProducerUsage);
+   if (result == VK_SUCCESS &&
+       !(swapchainImageUsage & VK_SWAPCHAIN_IMAGE_USAGE_SHARED_BIT_ANDROID) &&
+       tu_gralloc_ubwc_possible(device->physical_device->info, format,
+                                VK_IMAGE_TILING_OPTIMAL, 0, imageUsage))
+      *grallocProducerUsage |= TU_GRALLOC_USAGE_PRIVATE_ALLOC_UBWC;
+
+   return result;
+}
+#endif

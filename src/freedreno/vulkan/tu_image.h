@@ -143,6 +143,13 @@ tu_cs_image_flag_ref(struct tu_cs *cs, const struct fdl6_view *iview, uint32_t l
 bool
 tiling_possible(VkFormat format);
 
+#define TU_GRALLOC_USAGE_PRIVATE_ALLOC_UBWC (1ULL << 28)
+
+bool
+tu_gralloc_ubwc_possible(const struct fd_dev_info *info, VkFormat format,
+                         VkImageTiling tiling, VkImageCreateFlags flags,
+                         VkImageUsageFlags usage);
+
 bool
 ubwc_possible(struct tu_device *device,
               VkFormat format,

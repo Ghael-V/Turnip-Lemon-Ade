@@ -894,6 +894,22 @@ tu_GetPhysicalDeviceImageFormatProperties2(
          /* AHBs with mipmap usage will ignore this property */
          props->maxMipLevels = 1;
          props->sampleCounts = VK_SAMPLE_COUNT_1_BIT;
+
+#ifdef VK_USE_PLATFORM_ANDROID_KHR
+         VkAndroidHardwareBufferUsageANDROID *ahb_usage_props =
+            (VkAndroidHardwareBufferUsageANDROID *) vk_find_struct(
+               base_props->pNext, ANDROID_HARDWARE_BUFFER_USAGE_ANDROID);
+         if (ahb_usage_props &&
+             !(compression_control &&
+               (compression_control->flags &
+                VK_IMAGE_COMPRESSION_DISABLED_EXT)) &&
+             tu_gralloc_ubwc_possible(physical_device->info,
+                                      base_info->format, base_info->tiling,
+                                      base_info->flags, base_info->usage)) {
+            ahb_usage_props->androidHardwareBufferUsage |=
+               TU_GRALLOC_USAGE_PRIVATE_ALLOC_UBWC;
+         }
+#endif
       } else {
          result = tu_get_external_image_format_properties(
             physical_device, base_info, external_info->handleType,
