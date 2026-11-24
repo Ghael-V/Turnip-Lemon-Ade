@@ -156,7 +156,13 @@ fallback_gralloc_get_buffer_info(struct u_gralloc *gralloc,
    
    /* TODO: Actually find a way to detect a Qualcomm vendor allocated buffer */
    /* This UBWC flag was introduced in a5xx. */
-   bool ubwc = hnd->handle->data[hnd->handle->numFds + 1] & 0x08000000;
+   const int *ints = &hnd->handle->data[hnd->handle->numFds];
+   const int num_ints = hnd->handle->numInts;
+   int flags = num_ints >= 2 ? ints[1] : 0;
+   if (num_ints >= 9 && ints[0] != 0x676d736d &&
+       ints[3] == stride && ints[8] == hnd->hal_format)
+      flags = ints[2];
+   bool ubwc = flags & 0x08000000;
    out->modifier = ubwc ? DRM_FORMAT_MOD_QCOM_COMPRESSED : DRM_FORMAT_MOD_LINEAR;
 #endif
 
