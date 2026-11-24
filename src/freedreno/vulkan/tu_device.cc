@@ -2085,7 +2085,8 @@ tu_physical_device_get_global_priority_properties(const struct tu_physical_devic
       return;
    }
 
-   props->priorityCount = MIN2(pdevice->submitqueue_priority_count, 3);
+   props->priorityCount = MIN2(pdevice->submitqueue_priority_count,
+                               pdevice->has_realtime_priority ? 4 : 3);
    switch (props->priorityCount) {
    case 1:
       props->priorities[0] = VK_QUEUE_GLOBAL_PRIORITY_MEDIUM_KHR;

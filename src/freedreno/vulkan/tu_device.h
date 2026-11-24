@@ -155,6 +155,7 @@ struct tu_physical_device
    struct fdl_ubwc_config ubwc_config;
 
    bool has_preemption;
+   bool has_realtime_priority;
 
    bool expose_double_threadsize;
 

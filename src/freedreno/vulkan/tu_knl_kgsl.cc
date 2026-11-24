@@ -56,6 +56,14 @@ kgsl_submitqueue_new(struct tu_device *dev, struct tu_queue *queue)
               KGSL_CONTEXT_PREAMBLE,
    };
 
+   static const uint32_t kgsl_priorities[] = { 1, 4, 0, 12 };
+   uint32_t kgsl_priority = 0;
+   if (queue->type == TU_QUEUE_GFX && queue->priority >= 0 &&
+       queue->priority < (int) ARRAY_SIZE(kgsl_priorities))
+      kgsl_priority = kgsl_priorities[queue->priority];
+   req.flags |= (kgsl_priority << KGSL_CONTEXT_PRIORITY_SHIFT) &
+                KGSL_CONTEXT_PRIORITY_MASK;
+
    int ret = safe_ioctl(dev->physical_device->local_fd, IOCTL_KGSL_DRAWCTXT_CREATE, &req);
    if (ret)
       return ret;
@@ -2121,7 +2129,8 @@ tu_knl_kgsl_load(struct tu_instance *instance, int fd)
    uint64_t ts;
    device->has_gpu_timestamp = kgsl_read_calibrated_ts(fd, &ts) == 0;
 
-   device->submitqueue_priority_count = 1;
+   device->submitqueue_priority_count = 4;
+   device->has_realtime_priority = true;
    
    device->timeline_type = vk_sync_timeline_get_type(&vk_kgsl_sync_type);
 
