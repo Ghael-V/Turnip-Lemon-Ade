@@ -8,6 +8,13 @@ whitebelyash's generic commits from [`turnip/gen8`](https://github.com/whitebely
 packaged as an [adrenotools](https://github.com/bylaws/libadrenotools) driver zip and loaded by the emulator in
 place of the device's stock Qualcomm driver.
 
+v0.0.9 also picks 16 newer Mesa main commits (up to 2026-11-27, each with its upstream hash in the message): the
+Adreno 8xx gen1 private-memory workaround QCTDD10982019, which covers the A830; ir3 fixes (missing `(ss)`/`(sy)`
+waits after local atomics, `resinfo` and uGPR writes, a use-after-free in array_to_ssa, a sign-folding bug,
+"Unhandled ALU op: fmadz", a stack overrun in opt_group_loads); occlusion query ordering fixes; dynamic descriptor
+sizes with graphics pipeline libraries; the heap budget shared across instances, with the vk_memory_budget helpers
+it needs; and the per-GPU descriptor prefetch and sampler preload limits.
+
 ## Changes on top of Mesa
 
 - **UBWC swapchains** (since v0.0.9): on A8xx, R8G8B8A8 swapchain and AHB buffers are allocated compressed
